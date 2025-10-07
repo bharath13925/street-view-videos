@@ -1,7 +1,11 @@
 import axios from "axios";
 import Route from "../models/Route.js";
+import dotenv from "dotenv";
 
-const PYTHON_SERVICE = "http://localhost:8000";
+dotenv.config();
+
+
+const PYTHON_SERVICE = process.env.PYTHON_SERVICE;
 
 // Helper function to match Python's safe_name function
 function safeName(name) {
