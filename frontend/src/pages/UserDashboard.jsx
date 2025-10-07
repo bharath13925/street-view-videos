@@ -28,6 +28,8 @@ export default function Dashboard() {
 
   const startRef = useRef(null);
   const endRef = useRef(null);
+  const backendUrl = import.meta.env.VITE_BACKEND_URL;
+  const pythonUrl=import.meta.env.VITE_MICROSERVICE_URL;
 
   useEffect(() => {
     // Fetch logged-in Firebase user
@@ -35,7 +37,7 @@ export default function Dashboard() {
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
       if (firebaseUser) {
         const uid = firebaseUser.uid;
-        fetch(`http://localhost:5000/api/users/${uid}`)
+        fetch(`${backendUrl}/api/users/${uid}`)
           .then((res) => res.json())
           .then((data) => setUser(data))
           .catch((err) => console.error("Error fetching user", err));
@@ -150,7 +152,7 @@ export default function Dashboard() {
       if (route.videoGenerated && route.videoFilename) {
         setVideoInfo({
           filename: route.videoFilename,
-          video_url: `http://localhost:8000/videos/${route.pythonRouteId}/${route.videoFilename}`,
+          video_url: `${pythonUrl}/videos/${route.pythonRouteId}/${route.videoFilename}`,
           ...route.videoStats
         });
       }
@@ -159,7 +161,7 @@ export default function Dashboard() {
 
   const fetchAnalytics = async (routeId) => {
     try {
-      const response = await fetch(`http://localhost:5000/api/routes/${routeId}/analytics`);
+      const response = await fetch(`${backendUrl}/api/routes/${routeId}/analytics`);
       const data = await response.json();
       if (response.ok) {
         setAnalytics(data.analytics);
@@ -171,7 +173,7 @@ export default function Dashboard() {
 
   const checkForCachedRoute = async () => {
     try {
-      const response = await fetch("http://localhost:5000/api/routes/check-existing", {
+      const response = await fetch(`${backendUrl}/api/routes/check-existing`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -226,7 +228,7 @@ export default function Dashboard() {
     try {
       // Step 1: Generate initial route
       const genResponse = await fetch(
-        "http://localhost:5000/api/routes/generate",
+        `${backendUrl}/api/routes/generate`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -250,7 +252,7 @@ export default function Dashboard() {
 
       // Step 2: Smooth the route headings
       const smoothResponse = await fetch(
-        `http://localhost:5000/api/routes/${generatedRoute._id}/smooth`,
+        `${backendUrl}/api/routes/${generatedRoute._id}/smooth`,
         { method: "POST" }
       );
 
@@ -271,7 +273,7 @@ export default function Dashboard() {
           
           // Step 3: Regenerate frames with smoothed headings
           const regenerateResponse = await fetch(
-            `http://localhost:5000/api/routes/${smoothedRoute._id}/regenerate`,
+            `${backendUrl}/api/routes/${smoothedRoute._id}/regenerate`,
             { method: "POST" }
           );
 
@@ -319,7 +321,7 @@ export default function Dashboard() {
 
     try {
       const response = await fetch(
-        "http://localhost:5000/api/routes/process-complete",
+        `${backendUrl}/api/routes/process-complete`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -369,7 +371,7 @@ export default function Dashboard() {
 
     try {
       const response = await fetch(
-        "http://localhost:5000/api/routes/process-complete-with-video",
+        `${backendUrl}/api/routes/process-complete-with-video`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -427,7 +429,7 @@ export default function Dashboard() {
 
     try {
       const response = await fetch(
-        "http://localhost:5000/api/routes/process-complete-with-video-cached",
+        `${backendUrl}/api/routes/process-complete-with-video-cached`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -485,7 +487,7 @@ export default function Dashboard() {
 
     try {
       const response = await fetch(
-        `http://localhost:5000/api/routes/${route._id}/interpolate`,
+        `${backendUrl}/api/routes/${route._id}/interpolate`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -526,7 +528,7 @@ export default function Dashboard() {
 
     try {
       const regenerateResponse = await fetch(
-        `http://localhost:5000/api/routes/${route._id}/regenerate`,
+        `${backendUrl}/api/routes/${route._id}/regenerate`,
         { method: "POST" }
       );
 
@@ -561,7 +563,7 @@ export default function Dashboard() {
 
     try {
       const response = await fetch(
-        `http://localhost:5000/api/routes/${route._id}/generate-video`,
+        `${backendUrl}/api/routes/${route._id}/generate-video`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
