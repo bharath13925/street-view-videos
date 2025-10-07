@@ -5,3 +5,5 @@ polyline
 numpy
 pillow
 torch
+opencv-python
+python-dotenv
