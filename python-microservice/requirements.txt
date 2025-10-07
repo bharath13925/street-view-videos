@@ -1,7 +1,23 @@
-fastapi
-uvicorn
-requests
-polyline
-numpy
-pillow
-torch
+# Web Framework
+fastapi==0.104.1
+uvicorn==0.24.0
+python-multipart==0.0.6
+
+# HTTP & API
+requests==2.31.0
+python-dotenv==1.0.0
+
+# Data Processing
+numpy==1.24.3
+polyline==2.0.0
+
+# Computer Vision & Image Processing
+opencv-python==4.8.1.78
+pillow==10.1.0
+
+# Deep Learning
+torch==2.1.0
+torchvision==0.16.0
+
+# Data Validation
+pydantic==2.4.2
