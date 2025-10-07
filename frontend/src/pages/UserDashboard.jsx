@@ -102,7 +102,7 @@ export default function Dashboard() {
   const generateStaticMap = () => {
     if (!startCoords || !endCoords) return;
 
-    const API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "AIzaSyDc7UwQ2ia1GwUYZPySTOsTXhIfRuTAFMA";
+    const API_KEY = import.meta.env.VITE_PLACES_API_KEY ;
     
     // Calculate center point
     const centerLat = (startCoords.lat + endCoords.lat) / 2;
