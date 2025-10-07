@@ -6,6 +6,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import userRoutes from "./routes/userRoutes.js";
 import routeRoutes from "./routes/routeRoutes.js";
+import emailRoutes from "./routes/emailRoutes.js";
 
 dotenv.config();
 
@@ -32,6 +33,7 @@ mongoose
 // Routes
 app.use("/api/users", userRoutes);
 app.use("/api/routes", routeRoutes);
+app.use("/api/contact", emailRoutes);
 
 // Test Route
 app.get("/", (req, res) => {

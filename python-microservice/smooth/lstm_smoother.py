@@ -3,7 +3,7 @@ from models.heading_lstm import HeadingLSTM, angle_to_vec, vec_to_angle
 
 def load_model(path="models/heading_lstm.pt", device="cpu"):
     model = HeadingLSTM()
-    state_dict = torch.load(path, map_location=device, weights_only=False)  # 👈 important fix
+    state_dict = torch.load(path, map_location=device)  # ✅ fixed
     model.load_state_dict(state_dict)
     model.eval().to(device)
     return model

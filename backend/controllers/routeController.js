@@ -18,7 +18,7 @@ function generateRouteIdentifier(start, end) {
 // ----------------------
 export const checkExistingRoute = async (req, res) => {
   try {
-    const { start, end, interpolation_factor = 2, video_fps = 30, video_quality = "high" } = req.body;
+    const { start, end, interpolation_factor, video_fps, video_quality } = req.body;
     
     // Generate route identifier to match Python service
     const routeIdentifier = generateRouteIdentifier(start, end);
@@ -28,7 +28,9 @@ export const checkExistingRoute = async (req, res) => {
       start: start.trim(),
       end: end.trim(),
       interpolated: true, // Only consider fully processed routes
-      videoGenerated: true // Only routes with videos
+      videoGenerated: true,// Only routes with videos
+      'videoStats.fps': video_fps,  // Match exact FPS
+      'videoStats.quality': video_quality 
     }).sort({ createdAt: -1 }); // Get the most recent one
     
     if (existingRoute && existingRoute.videoFilename) {
@@ -148,10 +150,10 @@ export const processCompletePipelineWithVideoCached = async (req, res) => {
       userId, 
       start, 
       end, 
-      interpolation_factor = 2,
+      interpolation_factor,
       generate_video = true,
-      video_fps = 30,
-      video_quality = "high"
+      video_fps,
+      video_quality
     } = req.body;
 
     // First check for existing route
@@ -699,9 +701,9 @@ export const generateVideo = async (req, res) => {
   try {
     const { routeId } = req.params;
     const { 
-      fps = 30, 
+      fps, 
       output_format = "mp4", 
-      quality = "high", 
+      quality , 
       include_interpolated = true 
     } = req.body;
 
@@ -829,10 +831,10 @@ export const processCompletePipelineWithVideo = async (req, res) => {
       userId, 
       start, 
       end, 
-      interpolation_factor = 2,
+      interpolation_factor,
       generate_video = true,
-      video_fps = 2,
-      video_quality = "high"
+      video_fps,
+      video_quality
     } = req.body;
 
     console.log("Starting complete processing pipeline with video generation");

@@ -1,13 +1,13 @@
 import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider } from "firebase/auth";
 const firebaseConfig = {
-  apiKey: "AIzaSyDdEVoPFPJiZ6wFdh2iqElwQsyOBNw1ea8",
-  authDomain: "route-vision-a571d.firebaseapp.com",
-  projectId: "route-vision-a571d",
-  storageBucket: "route-vision-a571d.firebasestorage.app",
-  messagingSenderId: "581116307240",
-  appId: "1:581116307240:web:a07b0c43eac2d940cb921d",
-  measurementId: "G-52XLN5CCYE"
+ apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
 };
 
 // Initialize Firebase

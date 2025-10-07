@@ -1,37 +1,37 @@
-// MainPage.jsx
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { MapPin, Shield, Zap, Globe } from "lucide-react";
+import { MapPin, Shield, Zap, Globe, Navigation, Clock, Camera, Map, Route, Users, Star, Heart, ChevronDown, ChevronUp } from "lucide-react";
 
-import img1 from "../assets/streetview.jpeg";
+import streetview from "../assets/streetview.jpeg";
 import img2 from "../assets/video.jpeg";
-import img3 from "../assets/routeplanning.jpeg";
+import routeplanning from "../assets/routeplanning.jpeg";
 import img4 from "../assets/explore.jpeg";
 import blog1 from "../assets/blog1.png";
 import blog2 from "../assets/blog2.png";
 import blog3 from "../assets/blog3.png";
+import MapsBackgroundImage from "../assets/MapsBackgroundImage.jpeg";
+import FAQ from "./Faq";
 
 const MainPage = () => {
   const navigate = useNavigate();
-  const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const [currentImage, setCurrentImage] = useState(0);
 
-  // ✅ Carousel images
-  const carouselImages = [
-    { src: img1, alt: "Route Visualization with Street View", title: "Street View" },
-    { src: img2, alt: "Immersive Video Experience", title: "Immersive Videos" },
-    { src: img3, alt: "Navigation Features", title: "Smart Navigation" },
-    { src: img4, alt: "City Routes", title: "Explore Routes" },
-  ];
-
+  // Carousel images - using your original images
+  const images = [
+      routeplanning,
+      streetview,
+      "https://images.unsplash.com/photo-1469474968028-56623f02e42e?w=800&h=450&fit=crop",
+      "https://images.unsplash.com/photo-1524492412937-b28074a5d7da?w=800&h=450&fit=crop"
+    ];
   // Auto-slide every 4s
   useEffect(() => {
     const interval = setInterval(() => {
-      setCurrentImageIndex((prevIndex) =>
-        prevIndex === carouselImages.length - 1 ? 0 : prevIndex + 1
+      setCurrentImage((prevIndex) =>
+        prevIndex === images.length - 1 ? 0 : prevIndex + 1
       );
     }, 4000);
     return () => clearInterval(interval);
-  }, [carouselImages.length]);
+  }, [images.length]);
 
   const handleLogin = () => {
     navigate("/login");
@@ -41,6 +41,7 @@ const MainPage = () => {
     navigate("/user-signup");
   };
 
+  // it is for smooth features in frontend page like goto features and faq's like that....
   const scrollToSection = (sectionId) => {
     const element = document.getElementById(sectionId);
     if (element) {
@@ -48,63 +49,149 @@ const MainPage = () => {
     }
   };
 
+  const features = [
+    {
+      icon: <Globe className="text-5xl text-lime-400 mx-auto mb-4 transition-all duration-300 group-hover:scale-110 group-hover:text-lime-300" />,
+      title: "Street View Integration",
+      description: "Immersive 360-degree street views of your routes before you travel"
+    },
+    {
+      icon: <Zap className="text-5xl text-lime-400 mx-auto mb-4 transition-all duration-300 group-hover:scale-110 group-hover:text-lime-300" />,
+      title: "Real-time Updates",
+      description: "More realistic and user-friendly navigation previews."
+    },
+    {
+      icon: <Shield className="text-5xl text-lime-400 mx-auto mb-4 transition-all duration-300 group-hover:scale-110 group-hover:text-lime-300" />,
+      title: "Safe & Secure",
+      description: "Enjoy smooth and secure route video experiences, optimized for travelers in Vijayawada and beyond."
+    },
+    {
+      icon: <Navigation className="text-5xl text-lime-400 mx-auto mb-4 transition-all duration-300 group-hover:scale-110 group-hover:text-lime-300" />,
+      title: "Smart Navigation",
+      description: "AI-powered route optimization for the best travel experience"
+    },
+    {
+      icon: <Clock className="text-5xl text-lime-400 mx-auto mb-4 transition-all duration-300 group-hover:scale-110 group-hover:text-lime-300" />,
+      title: "Time Predictions",
+      description: "Accurate arrival time estimates with traffic analysis"
+    },
+    {
+      icon: <Camera className="text-5xl text-lime-400 mx-auto mb-4 transition-all duration-300 group-hover:scale-110 group-hover:text-lime-300" />,
+      title: "Photo Integration",
+      description: "Capture and share memorable moments along your journey"
+    },
+    {
+      icon: <Map className="text-5xl text-lime-400 mx-auto mb-4 transition-all duration-300 group-hover:scale-110 group-hover:text-lime-300" />,
+      title: "Offline Maps",
+      description: "Download maps for offline use in remote areas"
+    },
+    {
+      icon: <Route className="text-5xl text-lime-400 mx-auto mb-4 transition-all duration-300 group-hover:scale-110 group-hover:text-lime-300" />,
+      title: "Route History",
+      description: "Keep track of your favorite routes and travel history"
+    },
+    {
+      icon: <Users className="text-5xl text-lime-400 mx-auto mb-4 transition-all duration-300 group-hover:scale-110 group-hover:text-lime-300" />,
+      title: "Social Sharing",
+      description: "Share routes with friends and discover community favorites"
+    },
+    {
+      icon: <Star className="text-5xl text-lime-400 mx-auto mb-4 transition-all duration-300 group-hover:scale-110 group-hover:text-lime-300" />,
+      title: "Route Rating",
+      description: "Rate and review routes to help other travelers"
+    },
+    {
+      icon: <Heart className="text-5xl text-lime-400 mx-auto mb-4 transition-all duration-300 group-hover:scale-110 group-hover:text-lime-300" />,
+      title: "Favorites",
+      description: "Save your favorite destinations and routes for quick access"
+    }
+  ];
+
   return (
-    <div className="min-h-screen bg-white">
-      {/* Logo Section */}
-      <section className="bg-gradient-to-r from-lime-400 to-lime-500 py-20">
-        <div className="container mx-auto px-4 text-center">
-          <div className="flex justify-center items-center mb-6">
-            <MapPin className="text-white text-6xl mr-4" />
-            <h1 className="text-5xl font-bold text-white">RouteVision</h1>
+    <div className="min-h-screen bg-black overflow-x-hidden">
+      {/* Hero Section with Map Background */}
+      <section className="relative bg-black py-20 overflow-hidden">
+        {/* Animated Indian Map Background */}
+        <div className="absolute inset-0 opacity-40">
+          <div 
+            className="indian-map-background"
+            style={{
+              backgroundImage: `url(${MapsBackgroundImage})`,
+            }}
+          ></div>
+          {/* Subtle overlay for contrast */}
+          <div className="absolute inset-0 bg-gradient-to-r from-black/60 via-transparent to-black/60"></div>
+        </div>
+        
+        {/* Glowing animated elements */}
+        <div className="absolute inset-0">
+          <div className="absolute top-10 left-10 w-20 h-20 bg-lime-400 opacity-20 rounded-full animate-bounce blur-sm"></div>
+          <div className="absolute top-32 right-20 w-16 h-16 bg-lime-400 opacity-20 rounded-full animate-bounce delay-1000 blur-sm"></div>
+          <div className="absolute bottom-20 left-32 w-12 h-12 bg-lime-400 opacity-20 rounded-full animate-bounce delay-500 blur-sm"></div>
+        </div>
+        
+        <div className="container mx-auto px-4 text-center relative z-10">
+          <div className="flex justify-center items-center mb-6 animate-fade-in">
+            <MapPin className="text-lime-400 text-6xl mr-4 animate-spin-slow drop-shadow-2xl" />
+            <h1 className="text-5xl font-bold text-white animate-slide-up drop-shadow-2xl">RouteVision</h1>
           </div>
-          <p className="text-xl text-white mb-8">
+          <p className="text-xl text-gray-300 mb-8 animate-slide-up delay-300 max-w-3xl mx-auto drop-shadow-lg">
             Discover routes with immersive video experiences and Street View integration
           </p>
-          <div className="flex justify-center gap-4">
+          <div className="flex justify-center gap-4 animate-slide-up delay-500">
             <button
               onClick={() => scrollToSection("features")}
-              className="border-2 border-white text-white px-8 py-3 rounded-lg font-semibold hover:bg-white hover:text-lime-500 transition duration-300"
+              className="group border-2 border-lime-400 text-lime-400 px-8 py-3 rounded-lg font-semibold hover:bg-lime-400 hover:text-black transition-all duration-300 transform hover:scale-105 hover:shadow-xl hover:shadow-lime-400/20 cursor-pointer"
             >
-              Learn More
+              <span className="group-hover:animate-pulse">Learn More</span>
             </button>
           </div>
         </div>
       </section>
 
-      {/* Image Carousel */}
-            <section className="py-16 bg-gray-50">
+      {/* Carousel Section */}
+      <section className="py-16 bg-gradient-to-b from-gray-900 to-black">
         <div className="container mx-auto px-4">
-          <h2 className="text-4xl font-bold text-center mb-12 text-gray-800">
+          <h2 className="text-4xl font-bold text-center mb-12 text-white animate-fade-in">
             Experience Route Visualization
           </h2>
-          <div className="relative max-w-4xl mx-auto">
-            <div className="relative overflow-hidden rounded-2xl shadow-2xl h-96">
-              {carouselImages.map((image, index) => (
+          <div className="relative max-w-5xl mx-auto group">
+            <div className="relative overflow-hidden rounded-2xl shadow-2xl aspect-[16/9] transform transition-all duration-500 group-hover:scale-105 group-hover:shadow-3xl border border-gray-700">
+              {images.map((image, index) => (
                 <div
                   key={index}
-                  className={`absolute inset-0 transition-opacity duration-1000 ${
-                    index === currentImageIndex ? "opacity-100" : "opacity-0"
+                  className={`absolute inset-0 transition-all duration-1000 ${
+                    index === currentImage ? "opacity-100 scale-100" : "opacity-0 scale-110"
                   }`}
                 >
-                  {/* ✅ Improved clarity with cover + overlay */}
                   <img
-                    src={image.src}
-                    alt={image.alt}
-                    className="w-full h-full object-cover"
+                    src={image}
+                    alt={`Slide ${index + 1}`}
+                    style={{
+                      width: "100%",
+                      height: "100%",
+                      objectFit: "contain",
+                      transition: "opacity 0.5s ease, transform 1s ease",
+                      opacity: index === currentImage ? 1 : 0,
+                    }}
+                    className="transition-transform duration-1000"
                   />
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-black/20"></div>
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent"></div>
                 </div>
               ))}
+              
+              {/* Animated shimmer overlay */}
+              <div className="absolute inset-0 bg-gradient-to-r from-transparent via-lime-400/10 to-transparent -translate-x-full animate-shimmer"></div>
             </div>
 
-            {/* Carousel Indicators */}
+            {/* Enhanced Indicators */}
             <div className="flex justify-center mt-6 space-x-2">
-              {carouselImages.map((_, index) => (
+              {images.map((_, index) => (
                 <button
                   key={index}
-                  onClick={() => setCurrentImageIndex(index)}
-                  className={`w-3 h-3 rounded-full transition duration-300 ${
-                    index === currentImageIndex ? "bg-lime-500" : "bg-gray-300"
+                  onClick={() => setCurrentImage(index)}
+                  className={`w-3 h-3 rounded-full transition-all duration-300 transform hover:scale-125 cursor-pointer ${
+                    index === currentImage ? "bg-lime-400 scale-125 animate-pulse shadow-lg shadow-lime-400/50" : "bg-gray-600 hover:bg-gray-500"
                   }`}
                 />
               ))}
@@ -114,27 +201,32 @@ const MainPage = () => {
       </section>
 
       {/* Login/Signup Section */}
-      <section className="py-16 bg-white">
+      <section className="py-16 bg-gradient-to-r from-gray-900 to-black">
         <div className="container mx-auto px-4 text-center">
-          <h2 className="text-4xl font-bold mb-8 text-gray-800">Join RouteVision</h2>
-          <p className="text-xl text-gray-600 mb-12 max-w-2xl mx-auto">
+          <h2 className="text-4xl font-bold mb-8 text-white animate-fade-in">Join RouteVision</h2>
+          <p className="text-xl text-gray-300 mb-12 max-w-2xl mx-auto animate-fade-in delay-200">
             Create your account to access personalized routes, save favorites, and share your discoveries
           </p>
-          <div className="bg-gray-50 rounded-xl p-8 max-w-md mx-auto shadow-lg">
-            <h3 className="text-2xl font-bold mb-6 text-gray-800">Get Started</h3>
+          <div className="bg-gray-800 border border-gray-700 rounded-2xl p-8 max-w-md mx-auto shadow-2xl transform transition-all duration-500 hover:scale-105 hover:shadow-3xl hover:shadow-lime-400/10 animate-slide-up delay-400">
+            <div className="mb-6">
+              <div className="w-16 h-16 bg-gradient-to-r from-lime-400 to-lime-500 rounded-full mx-auto mb-4 flex items-center justify-center animate-bounce shadow-lg shadow-lime-400/30">
+                <MapPin className="text-black text-2xl" />
+              </div>
+              <h3 className="text-2xl font-bold text-white">Get Started</h3>
+            </div>
             <div className="space-y-4">
               <button
                 onClick={handleSignup}
-                className="w-full bg-lime-500 text-white py-3 rounded-lg font-semibold hover:bg-lime-600 transition duration-300"
+                className="group w-full bg-gradient-to-r from-lime-400 to-lime-500 text-black py-3 rounded-lg font-semibold transition-all duration-300 transform hover:scale-105 hover:shadow-lg hover:shadow-lime-400/30 cursor-pointer"
               >
-                Sign Up Now
+                <span className="group-hover:animate-pulse">Sign Up Now</span>
               </button>
-              <p className="text-gray-600">Already have an account?</p>
+              <p className="text-gray-400 animate-fade-in">Already have an account?</p>
               <button
                 onClick={handleLogin}
-                className="w-full border-2 border-lime-500 text-lime-500 py-3 rounded-lg font-semibold hover:bg-lime-500 hover:text-white transition duration-300"
+                className="group w-full border-2 border-lime-400 text-lime-400 py-3 rounded-lg font-semibold hover:bg-lime-400 hover:text-black transition-all duration-300 transform hover:scale-105 cursor-pointer"
               >
-                Log In
+                <span className="group-hover:animate-pulse">Log In</span>
               </button>
             </div>
           </div>
@@ -142,60 +234,66 @@ const MainPage = () => {
       </section>
 
       {/* Features Section */}
-      <section id="features" className="py-16 bg-gray-50">
+      <section id="features" className="py-16 bg-gradient-to-b from-black to-gray-900">
         <div className="container mx-auto px-4">
-          <h2 className="text-4xl font-bold text-center mb-12 text-gray-800">
+          <h2 className="text-4xl font-bold text-center mb-12 text-white animate-fade-in">
             Powerful Features
           </h2>
-          <div className="grid md:grid-cols-3 gap-8">
-            <div className="bg-white p-8 rounded-xl shadow-lg text-center hover:shadow-xl transition duration-300">
-              <Globe className="text-5xl text-lime-500 mx-auto mb-4" />
-              <h3 className="text-xl font-bold mb-4 text-gray-800">Street View Integration</h3>
-              <p className="text-gray-600">
-                Immersive 360-degree street views of your routes before you travel
-              </p>
-            </div>
-            <div className="bg-white p-8 rounded-xl shadow-lg text-center hover:shadow-xl transition duration-300">
-              <Zap className="text-5xl text-lime-500 mx-auto mb-4" />
-              <h3 className="text-xl font-bold mb-4 text-gray-800">Real-time Updates</h3>
-              <p className="text-gray-600">
-                More realistic and user-friendly navigation previews.
-              </p>
-            </div>
-            <div className="bg-white p-8 rounded-xl shadow-lg text-center hover:shadow-xl transition duration-300">
-              <Shield className="text-5xl text-lime-500 mx-auto mb-4" />
-              <h3 className="text-xl font-bold mb-4 text-gray-800">Safe & Secure</h3>
-              <p className="text-gray-600">
-                Enjoy smooth and secure route video experiences, optimized for travelers in Vijayawada and beyond.
-              </p>
-            </div>
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            {features.map((feature, index) => (
+              <div
+                key={index}
+                className="group relative bg-gray-800 border border-gray-700 p-6 rounded-2xl shadow-lg text-center transition-all duration-500 transform hover:scale-110 hover:shadow-2xl hover:shadow-lime-400/20 hover:-translate-y-2 cursor-pointer animate-slide-up hover:border-lime-400/50"
+                style={{ animationDelay: `${index * 100}ms` }}
+              >
+                <div className="mb-4 transform transition-transform duration-300 group-hover:rotate-12">
+                  {feature.icon}
+                </div>
+                <h3 className="text-lg font-bold mb-3 text-white group-hover:text-lime-400 transition-colors duration-300">
+                  {feature.title}
+                </h3>
+                <p className="text-gray-400 text-sm group-hover:text-gray-300 transition-colors duration-300">
+                  {feature.description}
+                </p>
+                
+                {/* Animated border glow effect */}
+                <div className="absolute inset-0 rounded-2xl bg-gradient-to-r from-lime-400 to-lime-500 opacity-0 group-hover:opacity-10 transition-opacity duration-300 -z-10 blur-sm"></div>
+              </div>
+            ))}
           </div>
         </div>
       </section>
 
-      {/* Blogs Section */}
-      <section id="blog" className="py-16 bg-white">
+      {/* Blog Section */}
+      <section id="blog" className="py-16 bg-gray-900">
         <div className="container mx-auto px-4">
-          <h2 className="text-4xl font-bold text-center mb-12 text-gray-800">
+          <h2 className="text-4xl font-bold text-center mb-12 text-white animate-fade-in">
             Latest From Our Blog
           </h2>
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
             {[blog1, blog2, blog3].map((blogImg, idx) => (
               <article
                 key={idx}
-                className="bg-gray-50 rounded-xl overflow-hidden shadow-lg hover:shadow-xl transition duration-300"
+                className="group bg-gray-800 border border-gray-700 rounded-2xl overflow-hidden shadow-lg transition-all duration-500 transform hover:scale-105 hover:shadow-2xl hover:shadow-lime-400/10 hover:-translate-y-2 cursor-pointer animate-slide-up hover:border-lime-400/50"
+                style={{ animationDelay: `${idx * 200}ms` }}
               >
-                {/* ✅ Fixed blog thumbnails */}
-                <img src={blogImg} alt="Blog post" className="w-full h-48 object-cover" />
+                <div className="relative overflow-hidden">
+                  <img 
+                    src={blogImg} 
+                    alt="Blog post" 
+                    className="w-full h-48 object-cover transition-transform duration-500 group-hover:scale-110" 
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                </div>
                 <div className="p-6">
-                  <h3 className="text-xl font-bold mb-3 text-gray-800">
+                  <h3 className="text-xl font-bold mb-3 text-white group-hover:text-lime-400 transition-colors duration-300">
                     {idx === 0
                       ? "Best Routes for City Exploration"
                       : idx === 1
                       ? "Navigation Tips for Beginners"
                       : "Google Maps API Integration"}
                   </h3>
-                  <p className="text-gray-600 mb-4">
+                  <p className="text-gray-400 mb-4 group-hover:text-gray-300 transition-colors duration-300">
                     {idx === 0
                       ? "Discover hidden gems in urban landscapes with our curated route recommendations..."
                       : idx === 1
@@ -212,9 +310,10 @@ const MainPage = () => {
                           : "/blog/maps-api"
                       )
                     }
-                    className="text-lime-500 font-semibold hover:text-lime-600"
+                    className="group/btn flex items-center text-lime-400 font-semibold hover:text-lime-300 transition-colors duration-300"
                   >
-                    Read More →
+                    <span className="group-hover/btn:translate-x-2 transition-transform duration-300">Read More</span>
+                    <span className="ml-2 group-hover/btn:translate-x-2 transition-transform duration-300">→</span>
                   </button>
                 </div>
               </article>
@@ -223,40 +322,107 @@ const MainPage = () => {
         </div>
       </section>
 
-      {/* FAQ Section */}
-      <section id="faq" className="py-16 bg-gray-50">
-        <div className="container mx-auto px-4">
-          <h2 className="text-4xl font-bold text-center mb-12 text-gray-800">
-            Frequently Asked Questions
-          </h2>
-          <div className="max-w-3xl mx-auto space-y-6">
-            <div className="bg-white rounded-xl p-6 shadow-lg">
-              <h3 className="text-xl font-bold mb-3 text-gray-800">How does RouteVision work?</h3>
-              <p className="text-gray-600">
-                RouteVision combines Google Maps API with Street View integration to provide immersive route visualization. Simply enter your destination and explore routes with 360-degree video previews.
-              </p>
-            </div>
-            <div className="bg-white rounded-xl p-6 shadow-lg">
-              <h3 className="text-xl font-bold mb-3 text-gray-800">Is RouteVision free to use?</h3>
-              <p className="text-gray-600">
-                We offer both free and premium plans. The free plan includes basic route finding, while premium features include unlimited route saving, offline maps, and advanced customization options.
-              </p>
-            </div>
-            <div className="bg-white rounded-xl p-6 shadow-lg">
-              <h3 className="text-xl font-bold mb-3 text-gray-800">Can I use RouteVision offline?</h3>
-              <p className="text-gray-600">
-                With our premium plan, you can download maps and routes for offline use. Perfect for areas with limited internet connectivity.
-              </p>
-            </div>
-            <div className="bg-white rounded-xl p-6 shadow-lg">
-              <h3 className="text-xl font-bold mb-3 text-gray-800">How accurate are the routes?</h3>
-              <p className="text-gray-600">
-                Our routes are powered by Google Maps API, ensuring high accuracy and real-time updates for traffic conditions, road closures, and optimal path calculation.
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
+      <FAQ/>
+
+      <style jsx>{`
+        .indian-map-background {
+          position: absolute;
+          top: -20%;
+          left: -20%;
+          width: 140%;
+          height: 140%;
+          background-size: cover;
+          background-position: center;
+          background-repeat: no-repeat;
+          animation: mapAnimation 25s ease-in-out infinite;
+          filter: brightness(1.3) contrast(1.2) saturate(1.1);
+        }
+
+        @keyframes mapAnimation {
+          0% { 
+            transform: scale(1) rotate(0deg) translateX(0) translateY(0);
+          }
+          20% { 
+            transform: scale(1.1) rotate(2deg) translateX(-30px) translateY(-20px);
+          }
+          40% { 
+            transform: scale(0.95) rotate(-1deg) translateX(25px) translateY(15px);
+          }
+          60% { 
+            transform: scale(1.05) rotate(1.5deg) translateX(-15px) translateY(-30px);
+          }
+          80% { 
+            transform: scale(0.98) rotate(-0.5deg) translateX(20px) translateY(10px);
+          }
+          100% { 
+            transform: scale(1) rotate(0deg) translateX(0) translateY(0);
+          }
+        }
+        
+        @keyframes fade-in {
+          from { opacity: 0; transform: translateY(20px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        
+        @keyframes slide-up {
+          from { opacity: 0; transform: translateY(30px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        
+        @keyframes spin-slow {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+        
+        @keyframes shimmer {
+          0% { transform: translateX(-100%); }
+          100% { transform: translateX(100%); }
+        }
+        
+        .animate-fade-in { animation: fade-in 0.8s ease-out; }
+        .animate-slide-up { animation: slide-up 0.8s ease-out; }
+        .animate-spin-slow { animation: spin-slow 3s linear infinite; }
+        .animate-shimmer { animation: shimmer 2s infinite; }
+        
+        .delay-200 { animation-delay: 200ms; }
+        .delay-300 { animation-delay: 300ms; }
+        .delay-400 { animation-delay: 400ms; }
+        .delay-500 { animation-delay: 500ms; }
+        .delay-1000 { animation-delay: 1000ms; }
+        
+        .hover\\:shadow-3xl:hover { box-shadow: 0 35px 60px -12px rgba(0, 0, 0, 0.25); }
+
+        @media (max-width: 768px) {
+          .indian-map-background {
+            animation-duration: 30s;
+          }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .indian-map-background {
+            animation: none;
+            transform: scale(1.05);
+          }
+        }
+
+        /* Custom scrollbar for dark theme */
+        ::-webkit-scrollbar {
+          width: 8px;
+        }
+        
+        ::-webkit-scrollbar-track {
+          background: #1f2937;
+        }
+        
+        ::-webkit-scrollbar-thumb {
+          background: #84cc16;
+          border-radius: 4px;
+        }
+        
+        ::-webkit-scrollbar-thumb:hover {
+          background: #65a30d;
+        }
+      `}</style>
     </div>
   );
 };

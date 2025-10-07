@@ -11,8 +11,7 @@ class HeadingLSTM(nn.Module):
 
     def forward(self, x):
         y, _ = self.lstm(x)
-        y = self.head(y)
-        return y
+        return self.head(y)
 
 def angle_to_vec(rad):
     return np.stack([np.sin(rad), np.cos(rad)], axis=-1)

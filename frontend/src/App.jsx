@@ -6,6 +6,9 @@ import BlogPage from './pages/BlogPage';
 import UserSignupForm from './pages/UserSignupForm';
 import Login from './pages/UserLoginForm';
 import UserDashboard from './pages/UserDashboard';
+import PrivacyPolicy from './pages/PrivacyPolicy';
+import TermsOfService from './pages/TermsOfService';
+import Support from './pages/Support';
 function App() {
   return (
     <Router>
@@ -17,6 +20,9 @@ function App() {
           <Route path="/user-signup" element={<UserSignupForm />} />
           <Route path="/login" element={<Login />} />
           <Route path="/user-dashboard" element={<UserDashboard />} />
+          <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+          <Route path="/terms-of-service" element={<TermsOfService />} />
+          <Route path="/support" element={<Support />} />
         </Routes>
         <Footer/>
       </div>

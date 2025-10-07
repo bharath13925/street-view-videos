@@ -1,6 +1,6 @@
-
 import { useState, useEffect, useRef } from "react";
 import { getAuth, onAuthStateChanged } from "firebase/auth";
+import { MapPin, Route, Video, Play, Download, Clock, FileVideo, Camera, Navigation, Zap, Map } from "lucide-react";
 
 export default function Dashboard() {
   const [user, setUser] = useState(null);
@@ -14,6 +14,7 @@ export default function Dashboard() {
   const [interpolationFactor, setInterpolationFactor] = useState(2);
   const [analytics, setAnalytics] = useState(null);
   const [cacheStatus, setCacheStatus] = useState(null);
+  const [mapImageUrl, setMapImageUrl] = useState(null);
   
   // Video generation states
   const [videoLoading, setVideoLoading] = useState(false);
@@ -55,7 +56,7 @@ export default function Dashboard() {
       );
       startAutocomplete.addListener("place_changed", () => {
         const place = startAutocomplete.getPlace();
-        setStartLocation(place.name || place.formatted_address || startRef.current.value);
+        setStartLocation(place.name && place.formatted_address && startRef.current.value);
         if (place.geometry) {
           setStartCoords({
             lat: place.geometry.location.lat(),
@@ -70,7 +71,7 @@ export default function Dashboard() {
       );
       endAutocomplete.addListener("place_changed", () => {
         const place = endAutocomplete.getPlace();
-        setEndLocation(place.name || place.formatted_address || endRef.current.value);
+        setEndLocation(place.name && place.formatted_address && endRef.current.value);
         if (place.geometry) {
           setEndCoords({
             lat: place.geometry.location.lat(),
@@ -88,6 +89,49 @@ export default function Dashboard() {
 
     return () => unsubscribe();
   }, []);
+
+  // Generate static map when coordinates are available
+  useEffect(() => {
+    if (startCoords && endCoords) {
+      generateStaticMap();
+    } else {
+      setMapImageUrl(null);
+    }
+  }, [startCoords, endCoords]);
+
+  const generateStaticMap = () => {
+    if (!startCoords || !endCoords) return;
+
+    const API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "AIzaSyDc7UwQ2ia1GwUYZPySTOsTXhIfRuTAFMA";
+    
+    // Calculate center point
+    const centerLat = (startCoords.lat + endCoords.lat) / 2;
+    const centerLng = (startCoords.lng + endCoords.lng) / 2;
+    
+    // Calculate zoom level based on distance
+    const latDiff = Math.abs(startCoords.lat - endCoords.lat);
+    const lngDiff = Math.abs(startCoords.lng - endCoords.lng);
+    const maxDiff = Math.max(latDiff, lngDiff);
+    
+    let zoom = 10;
+    if (maxDiff < 0.01) zoom = 15;
+    else if (maxDiff < 0.05) zoom = 13;
+    else if (maxDiff < 0.1) zoom = 11;
+    else if (maxDiff < 0.5) zoom = 9;
+    else zoom = 8;
+
+    const staticMapUrl = `https://maps.googleapis.com/maps/api/staticmap?` +
+      `center=${centerLat},${centerLng}&` +
+      `zoom=${zoom}&` +
+      `size=800x400&` +
+      `maptype=roadmap&` +
+      `markers=color:green|label:A|${startCoords.lat},${startCoords.lng}&` +
+      `markers=color:red|label:B|${endCoords.lat},${endCoords.lng}&` +
+      `path=color:0x0000ff|weight:5|${startCoords.lat},${startCoords.lng}|${endCoords.lat},${endCoords.lng}&` +
+      `key=${API_KEY}`;
+
+    setMapImageUrl(staticMapUrl);
+  };
 
   // Check for cached route when locations change
   useEffect(() => {
@@ -555,24 +599,52 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-white text-gray-800">
-      <header className="bg-lime-600 text-white p-6 shadow-md">
-        <h1 className="text-2xl font-bold">Street View Route Processor with Smart Caching</h1>
-        <p className="text-lime-100 mt-1">Generate → Smooth → Regenerate → Interpolate → Video (with caching)</p>
+    <div className="min-h-screen bg-black text-white relative overflow-hidden">
+      {/* Animated background elements */}
+      <div className="absolute inset-0 pointer-events-none">
+        <div className="absolute top-10 left-10 w-20 h-20 bg-lime-400/10 rounded-full animate-bounce blur-sm"></div>
+        <div className="absolute top-32 right-20 w-16 h-16 bg-lime-400/15 rounded-full animate-pulse"></div>
+        <div className="absolute bottom-20 left-1/4 w-24 h-24 bg-lime-400/8 rounded-full animate-bounce blur-sm" style={{ animationDelay: '0.5s' }}></div>
+        <div className="absolute bottom-32 right-10 w-12 h-12 bg-lime-400/20 rounded-full animate-pulse" style={{ animationDelay: '0.7s' }}></div>
+        
+        {/* Geometric shapes */}
+        <div className="absolute top-20 right-1/4 w-8 h-8 border-2 border-lime-400/20 transform rotate-45 animate-spin opacity-30" style={{ animationDuration: '8s' }}></div>
+        <div className="absolute bottom-1/3 left-1/4 w-6 h-6 bg-lime-400/15 transform rotate-12 animate-pulse"></div>
+      </div>
+
+      <header className="relative z-10 bg-gradient-to-r from-gray-900/90 to-gray-800/90 backdrop-blur-xl text-white p-6 shadow-2xl border-b border-gray-700 animate-slide-down">
+        <div className="flex items-center gap-4 mb-2">
+          <div className="p-3 bg-lime-400/20 rounded-full">
+            <Navigation className="text-lime-400 text-2xl animate-pulse" />
+          </div>
+          <div>
+            <h1 className="text-3xl font-bold text-lime-400 animate-fade-in">RouteVision Dashboard</h1>
+            <p className="text-gray-300 mt-1 animate-fade-in" style={{ animationDelay: '0.2s' }}>
+              Generate → Smooth → Regenerate → Interpolate → Video generation with interactive map
+            </p>
+          </div>
+        </div>
       </header>
 
-      <main className="p-8 max-w-7xl mx-auto">
-        <h2 className="text-xl font-semibold text-lime-700 mb-4">
-          Welcome, {user?.name || "User"}
-        </h2>
-        <p className="mb-6 text-gray-600">
-          Create smooth street view sequences with LSTM smoothing, optical flow interpolation, and video generation.
+      <main className="relative z-10 p-8 max-w-7xl mx-auto">
+        <div className="flex items-center gap-3 mb-6 animate-slide-up">
+          <div className="w-10 h-10 bg-gradient-to-r from-lime-400 to-lime-500 rounded-full flex items-center justify-center animate-bounce">
+            <MapPin className="text-black text-lg" />
+          </div>
+          <h2 className="text-2xl font-semibold text-lime-400">
+            Welcome, {user?.name || "User"}
+          </h2>
+        </div>
+        
+        <p className="mb-8 text-gray-300 text-lg animate-slide-up" style={{ animationDelay: '0.1s' }}>
+          Create smooth street view sequences with LSTM smoothing, optical flow interpolation, video generation, and interactive route visualization.
         </p>
 
-        <form className="bg-gray-50 p-6 rounded-lg shadow-md mb-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+        <form className="bg-gray-800/70 backdrop-blur-xl p-8 rounded-2xl shadow-2xl mb-8 border border-gray-700 animate-slide-up hover:shadow-lime-400/10 transition-all duration-500" style={{ animationDelay: '0.2s' }}>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+            <div className="animate-slide-up" style={{ animationDelay: '0.3s' }}>
+              <label className="flex items-center gap-2 text-sm font-medium text-lime-400 mb-3">
+                <MapPin className="w-4 h-4" />
                 Start Location
               </label>
               <input
@@ -581,13 +653,14 @@ export default function Dashboard() {
                 value={startLocation}
                 onChange={(e) => setStartLocation(e.target.value)}
                 placeholder="Enter start location"
-                className="w-full p-2 border border-gray-300 rounded-md"
+                className="w-full p-3 bg-gray-700/70 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-lime-400 focus:border-transparent transition-all duration-300 hover:shadow-lg hover:shadow-lime-400/10 backdrop-blur-sm"
                 disabled={loading}
               />
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+            <div className="animate-slide-up" style={{ animationDelay: '0.4s' }}>
+              <label className="flex items-center gap-2 text-sm font-medium text-lime-400 mb-3">
+                <Navigation className="w-4 h-4" />
                 End Location
               </label>
               <input
@@ -596,21 +669,22 @@ export default function Dashboard() {
                 value={endLocation}
                 onChange={(e) => setEndLocation(e.target.value)}
                 placeholder="Enter destination"
-                className="w-full p-2 border border-gray-300 rounded-md"
+                className="w-full p-3 bg-gray-700/70 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-lime-400 focus:border-transparent transition-all duration-300 hover:shadow-lg hover:shadow-lime-400/10 backdrop-blur-sm"
                 disabled={loading}
               />
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Interpolation Factor (frames between each pair)
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+            <div className="animate-slide-up" style={{ animationDelay: '0.5s' }}>
+              <label className="flex items-center gap-2 text-sm font-medium text-lime-400 mb-3">
+                <Zap className="w-4 h-4" />
+                Interpolation Factor
               </label>
               <select
                 value={interpolationFactor}
                 onChange={(e) => setInterpolationFactor(parseInt(e.target.value))}
-                className="w-full p-2 border border-gray-300 rounded-md"
+                className="w-full p-3 bg-gray-700/70 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-lime-400 focus:border-transparent transition-all duration-300 hover:shadow-lg hover:shadow-lime-400/10"
                 disabled={loading}
               >
                 <option value={1}>1 (2x frames)</option>
@@ -620,16 +694,18 @@ export default function Dashboard() {
               </select>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+            <div className="animate-slide-up" style={{ animationDelay: '0.6s' }}>
+              <label className="flex items-center gap-2 text-sm font-medium text-lime-400 mb-3">
+                <Clock className="w-4 h-4" />
                 Video FPS
               </label>
               <select
                 value={videoSettings.fps}
                 onChange={(e) => setVideoSettings({...videoSettings, fps: parseInt(e.target.value)})}
-                className="w-full p-2 border border-gray-300 rounded-md"
+                className="w-full p-3 bg-gray-700/70 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-lime-400 focus:border-transparent transition-all duration-300 hover:shadow-lg hover:shadow-lime-400/10"
                 disabled={loading || videoLoading}
               >
+                <option value={1}>1 FPS</option>
                 <option value={2}>2 FPS</option>
                 <option value={5}>5 FPS</option>
                 <option value={10}>10 FPS</option>
@@ -639,95 +715,123 @@ export default function Dashboard() {
                 <option value={60}>60 FPS</option>
               </select>
             </div>
-          </div>
 
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Video Quality
-            </label>
-            <div className="flex space-x-4">
-              {["high", "medium", "low"].map((quality) => (
-                <label key={quality} className="flex items-center">
-                  <input
-                    type="radio"
-                    name="quality"
-                    value={quality}
-                    checked={videoSettings.quality === quality}
-                    onChange={(e) => setVideoSettings({...videoSettings, quality: e.target.value})}
-                    className="mr-2"
-                    disabled={loading || videoLoading}
-                  />
-                  <span className="capitalize">{quality}</span>
-                </label>
-              ))}
+            <div className="animate-slide-up" style={{ animationDelay: '0.7s' }}>
+              <label className="flex items-center gap-2 text-sm font-medium text-lime-400 mb-3">
+                <FileVideo className="w-4 h-4" />
+                Video Quality
+              </label>
+              <div className="flex space-x-4">
+                {["high", "medium", "low"].map((quality) => (
+                  <label key={quality} className="flex items-center group cursor-pointer">
+                    <input
+                      type="radio"
+                      name="quality"
+                      value={quality}
+                      checked={videoSettings.quality === quality}
+                      onChange={(e) => setVideoSettings({...videoSettings, quality: e.target.value})}
+                      className="mr-2 text-lime-400 focus:ring-lime-400"
+                      disabled={loading || videoLoading}
+                    />
+                    <span className="capitalize text-gray-300 group-hover:text-lime-400 transition-colors duration-300">
+                      {quality}
+                    </span>
+                  </label>
+                ))}
+              </div>
             </div>
           </div>
 
           {/* Cache Status Display */}
           {cacheStatus && (
-            <div className={`p-4 rounded-lg mb-4 ${
-              cacheStatus.cached ? 'bg-green-100 text-green-700' : 
-              cacheStatus.error ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'
-            }`}>
+            <div className={`p-4 rounded-lg mb-6 border transition-all duration-300 animate-slide-up ${
+              cacheStatus.cached ? 'bg-green-900/30 border-green-500/30 text-green-300' : 
+              cacheStatus.error ? 'bg-red-900/30 border-red-500/30 text-red-300' : 'bg-yellow-900/30 border-yellow-500/30 text-yellow-300'
+            }`} style={{ animationDelay: '0.8s' }}>
               {cacheStatus.cached ? (
                 <div>
-                  <p className="font-medium mb-2">✅ Cached Route Found!</p>
-                  <p className="text-sm">
+                  <p className="font-medium mb-2 flex items-center gap-2">
+                    <Zap className="w-4 h-4 animate-pulse" />
+                    Cached Route Found!
+                  </p>
+                  <p className="text-sm opacity-90">
                     Route with {cacheStatus.route?.framesData?.length || 0} frames and 
                     {cacheStatus.video_info ? ` video (${cacheStatus.video_info.file_size_mb} MB)` : ' no video'} available.
                   </p>
                   <button
                     type="button"
                     onClick={handleUseCachedRoute}
-                    className="mt-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md text-sm"
+                    className="mt-3 bg-green-600/70 hover:bg-green-600 text-white px-4 py-2 rounded-md text-sm transition-all duration-300 transform hover:scale-105 backdrop-blur-sm cursor-pointer"
                     disabled={loading || videoLoading}
                   >
                     Use Cached Route
                   </button>
                 </div>
               ) : cacheStatus.error ? (
-                <p className="font-medium">❌ Cache check failed: {cacheStatus.error}</p>
+                <p className="font-medium flex items-center gap-2">
+                  <span className="w-4 h-4 bg-red-500 rounded-full animate-pulse"></span>
+                  Cache check failed: {cacheStatus.error}
+                </p>
               ) : (
-                <p className="font-medium">🔍 No cached route found for these parameters</p>
+                <p className="font-medium flex items-center gap-2">
+                  <span className="w-4 h-4 bg-yellow-500 rounded-full animate-spin"></span>
+                  No cached route found for these parameters
+                </p>
               )}
             </div>
           )}
 
-          <div className="flex flex-wrap gap-3">
+          <div className="flex flex-wrap gap-4 animate-slide-up" style={{ animationDelay: '0.9s' }}>
             <button
               type="button"
               onClick={handleSmartPipelineWithCache}
               disabled={loading || videoLoading}
-              className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 disabled:bg-gray-400 text-white font-semibold px-4 py-2 rounded-md"
+              className="group bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed cursor-pointer text-white font-semibold px-6 py-3 rounded-lg transition-all duration-300 transform hover:scale-105 active:scale-95 hover:shadow-xl hover:shadow-purple-400/30 relative overflow-hidden"
             >
-              {loading ? "Processing..." : "🚀 Smart Pipeline (Auto-Cache)"}
+              <span className="relative z-10 flex items-center gap-2 group-hover:animate-pulse">
+                <Zap className="w-4 h-4" />
+                {loading ? "Processing..." : "Smart Pipeline (Auto-Cache)"}
+              </span>
+              <div className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/20 to-white/0 transform skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
             </button>
 
             <button
               type="button"
               onClick={handleSubmit}
               disabled={loading || videoLoading}
-              className="bg-lime-600 hover:bg-lime-700 disabled:bg-gray-400 text-white font-semibold px-4 py-2 rounded-md"
+              className="group bg-gradient-to-r from-lime-500 to-lime-600 hover:from-lime-600 hover:to-lime-700 disabled:from-gray-600 disabled:to-gray-700 text-black font-semibold px-6 py-3 rounded-lg transition-all duration-300 transform hover:scale-105 active:scale-95 hover:shadow-xl hover:shadow-lime-400/30 relative overflow-hidden"
             >
-              {loading ? "Processing..." : "Step-by-Step Process"}
+              <span className="relative z-10 flex items-center gap-2 group-hover:animate-pulse">
+                <Route className="w-4 h-4" />
+                {loading ? "Processing..." : "Step-by-Step Process"}
+              </span>
+              <div className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/25 to-white/0 transform skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
             </button>
 
             <button
               type="button"
               onClick={handleCompletePipeline}
               disabled={loading || videoLoading}
-              className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-semibold px-4 py-2 rounded-md"
+              className="group bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 disabled:from-gray-600 disabled:to-gray-700 text-white font-semibold px-6 py-3 rounded-lg transition-all duration-300 transform hover:scale-105 active:scale-95 hover:shadow-xl hover:shadow-blue-400/30 relative overflow-hidden"
             >
-              {loading ? "Processing..." : "Complete Pipeline"}
+              <span className="relative z-10 flex items-center gap-2 group-hover:animate-pulse">
+                <Navigation className="w-4 h-4" />
+                {loading ? "Processing..." : "Complete Pipeline"}
+              </span>
+              <div className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/20 to-white/0 transform skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
             </button>
 
             <button
               type="button"
               onClick={handleCompletePipelineWithVideo}
               disabled={loading || videoLoading}
-              className="bg-purple-600 hover:bg-purple-700 disabled:bg-gray-400 text-white font-semibold px-4 py-2 rounded-md"
+              className="group bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 disabled:from-gray-600 disabled:to-gray-700 text-white font-semibold px-6 py-3 rounded-lg transition-all duration-300 transform hover:scale-105 active:scale-95 hover:shadow-xl hover:shadow-purple-400/30 relative overflow-hidden"
             >
-              {loading ? "Processing..." : "Complete Pipeline + Video"}
+              <span className="relative z-10 flex items-center gap-2 group-hover:animate-pulse">
+                <Video className="w-4 h-4" />
+                {loading ? "Processing..." : "Complete Pipeline + Video"}
+              </span>
+              <div className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/20 to-white/0 transform skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
             </button>
 
             {route && (
@@ -736,88 +840,185 @@ export default function Dashboard() {
                   type="button"
                   onClick={regenerateFrames}
                   disabled={loading || videoLoading}
-                  className="bg-orange-600 hover:bg-orange-700 disabled:bg-gray-400 text-white font-semibold px-4 py-2 rounded-md"
+                  className="group bg-gradient-to-r from-orange-600 to-red-600 hover:from-orange-700 hover:to-red-700 disabled:from-gray-600 disabled:to-gray-700 text-white font-semibold px-6 py-3 rounded-lg transition-all duration-300 transform hover:scale-105 active:scale-95 hover:shadow-xl hover:shadow-orange-400/30 relative overflow-hidden"
                 >
-                  Regenerate Frames Only
+                  <span className="relative z-10 flex items-center gap-2 group-hover:animate-pulse">
+                    <Camera className="w-4 h-4" />
+                    Regenerate Frames Only
+                  </span>
+                  <div className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/20 to-white/0 transform skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
                 </button>
 
                 <button
                   type="button"
                   onClick={interpolateFrames}
                   disabled={loading || videoLoading}
-                  className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-400 text-white font-semibold px-4 py-2 rounded-md"
+                  className="group bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 disabled:from-gray-600 disabled:to-gray-700 text-white font-semibold px-6 py-3 rounded-lg transition-all duration-300 transform hover:scale-105 active:scale-95 hover:shadow-xl hover:shadow-indigo-400/30 relative overflow-hidden"
                 >
-                  Apply Optical Flow
+                  <span className="relative z-10 flex items-center gap-2 group-hover:animate-pulse">
+                    <Zap className="w-4 h-4" />
+                    Apply Optical Flow
+                  </span>
+                  <div className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/20 to-white/0 transform skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
                 </button>
 
                 <button
                   type="button"
                   onClick={generateVideo}
                   disabled={loading || videoLoading || !route.framesData || route.framesData.length < 2}
-                  className="bg-red-600 hover:bg-red-700 disabled:bg-gray-400 text-white font-semibold px-4 py-2 rounded-md"
+                  className="group bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-700 hover:to-pink-700 disabled:from-gray-600 disabled:to-gray-700 text-white font-semibold px-6 py-3 rounded-lg transition-all duration-300 transform hover:scale-105 active:scale-95 hover:shadow-xl hover:shadow-red-400/30 relative overflow-hidden"
                 >
-                  {videoLoading ? "Generating Video..." : "Generate Video"}
+                  <span className="relative z-10 flex items-center gap-2 group-hover:animate-pulse">
+                    <Play className="w-4 h-4" />
+                    {videoLoading ? "Generating Video..." : "Generate Video"}
+                  </span>
+                  <div className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/20 to-white/0 transform skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
                 </button>
               </>
             )}
           </div>
         </form>
 
+        {/* Route Map Display */}
+        {mapImageUrl && (
+          <div className="bg-gray-800/70 backdrop-blur-xl p-8 rounded-2xl shadow-2xl mb-8 border border-gray-700 animate-slide-up hover:shadow-lime-400/10 transition-all duration-500">
+            <h3 className="text-2xl font-semibold text-lime-400 mb-6 flex items-center gap-3">
+              <div className="p-2 bg-lime-400/20 rounded-full">
+                <Map className="w-6 h-6" />
+              </div>
+              Route Overview
+            </h3>
+            <div className="relative rounded-xl overflow-hidden shadow-2xl border border-gray-600 group">
+              <img
+                src={mapImageUrl}
+                alt="Route map showing path from start to destination"
+                className="w-full h-auto transition-all duration-300 group-hover:scale-105"
+                style={{ maxHeight: '400px', objectFit: 'cover' }}
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"></div>
+              
+              {/* Route info overlay */}
+              <div className="absolute bottom-4 left-4 right-4 bg-black/70 backdrop-blur-sm rounded-lg p-4">
+                <div className="flex items-center justify-between text-white">
+                  <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
+                      <span className="text-sm font-medium">Start: {startLocation}</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
+                      <span className="text-sm font-medium">End: {endLocation}</span>
+                    </div>
+                  </div>
+                </div>
+                {startCoords && endCoords && (
+                  <div className="mt-3 text-xs text-gray-300 flex items-center justify-between">
+                    <span>Start: {startCoords.lat.toFixed(6)}, {startCoords.lng.toFixed(6)}</span>
+                    <span>End: {endCoords.lat.toFixed(6)}, {endCoords.lng.toFixed(6)}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Status Display */}
         {status && (
-          <div className={`p-4 rounded-lg mb-6 ${
-            status.includes('Error') || status.includes('failed') ? 'bg-red-100 text-red-700' : 
-            status.includes('successful') || status.includes('complete') || status.includes('cached') ? 'bg-green-100 text-green-700' : 
-            'bg-blue-100 text-blue-700'
+          <div className={`p-4 rounded-lg mb-6 border transition-all duration-300 animate-slide-up backdrop-blur-sm ${
+            status.includes('Error') || status.includes('failed') ? 'bg-red-900/30 border-red-500/30 text-red-300' : 
+            status.includes('successful') || status.includes('complete') || status.includes('cached') ? 'bg-green-900/30 border-green-500/30 text-green-300' : 
+            'bg-blue-900/30 border-blue-500/30 text-blue-300'
           }`}>
-            <p className="font-medium">{status}</p>
+            <p className="font-medium flex items-center gap-2">
+              <div className={`w-2 h-2 rounded-full animate-pulse ${
+                status.includes('Error') || status.includes('failed') ? 'bg-red-400' : 
+                status.includes('successful') || status.includes('complete') || status.includes('cached') ? 'bg-green-400' : 
+                'bg-blue-400'
+              }`}></div>
+              {status}
+            </p>
           </div>
         )}
 
         {/* Video Status Display */}
         {videoStatus && (
-          <div className={`p-4 rounded-lg mb-6 ${
-            videoStatus.includes('Error') || videoStatus.includes('failed') ? 'bg-red-100 text-red-700' : 
-            videoStatus.includes('successful') ? 'bg-green-100 text-green-700' : 
-            'bg-blue-100 text-blue-700'
+          <div className={`p-4 rounded-lg mb-6 border transition-all duration-300 animate-slide-up backdrop-blur-sm ${
+            videoStatus.includes('Error') || videoStatus.includes('failed') ? 'bg-red-900/30 border-red-500/30 text-red-300' : 
+            videoStatus.includes('successful') ? 'bg-green-900/30 border-green-500/30 text-green-300' : 
+            'bg-blue-900/30 border-blue-500/30 text-blue-300'
           }`}>
-            <p className="font-medium">{videoStatus}</p>
+            <p className="font-medium flex items-center gap-2">
+              <Video className="w-4 h-4 animate-pulse" />
+              {videoStatus}
+            </p>
           </div>
         )}
 
         {/* Video Player */}
         {videoInfo && (
-          <div className="bg-gray-900 p-6 rounded-lg shadow-md mb-6">
-            <h3 className="text-lg font-semibold text-white mb-4">Generated Video</h3>
-            <div className="flex flex-col lg:flex-row gap-6">
+          <div className="bg-gray-800/70 backdrop-blur-xl p-8 rounded-2xl shadow-2xl mb-8 border border-gray-700 animate-slide-up hover:shadow-lime-400/10 transition-all duration-500">
+            <h3 className="text-2xl font-semibold text-lime-400 mb-6 flex items-center gap-3">
+              <div className="p-2 bg-lime-400/20 rounded-full">
+                <Video className="w-6 h-6" />
+              </div>
+              Generated Street View Video
+            </h3>
+            <div className="flex flex-col lg:flex-row gap-8">
               <div className="flex-1">
-                <video
-                  controls
-                  className="w-full rounded-lg shadow-lg"
-                  style={{ maxHeight: '400px' }}
-                  poster=""
-                >
-                  <source src={videoInfo.video_url} type="video/mp4" />
-                  Your browser does not support the video tag.
-                </video>
+                <div className="relative rounded-xl overflow-hidden shadow-2xl border border-gray-600 group">
+                  <video
+                    controls
+                    className="w-full transition-all duration-300 group-hover:scale-105"
+                    style={{ maxHeight: '500px' }}
+                    poster=""
+                  >
+                    <source src={videoInfo.video_url} type="video/mp4" />
+                    Your browser does not support the video tag.
+                  </video>
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"></div>
+                </div>
               </div>
               <div className="lg:w-80">
-                <div className="bg-gray-800 p-4 rounded-lg text-white">
-                  <h4 className="font-medium mb-3">Video Details</h4>
-                  <div className="space-y-2 text-sm">
-                    <p><strong>Source:</strong> <span className="capitalize">{videoInfo.source_type}</span></p>
-                    <p><strong>Duration:</strong> {videoInfo.duration_seconds?.toFixed(1)}s</p>
-                    <p><strong>FPS:</strong> {videoInfo.fps}</p>
-                    <p><strong>Resolution:</strong> {videoInfo.resolution}</p>
-                    <p><strong>Size:</strong> {videoInfo.file_size_mb} MB</p>
-                    <p><strong>Frames:</strong> {videoInfo.total_frames}</p>
+                <div className="bg-gray-700/50 p-6 rounded-xl text-white border border-gray-600 backdrop-blur-sm">
+                  <h4 className="font-medium mb-4 text-lime-400 flex items-center gap-2">
+                    <FileVideo className="w-4 h-4" />
+                    Video Details
+                  </h4>
+                  <div className="space-y-3 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-gray-300">Source:</span>
+                      <span className="capitalize text-lime-400">{videoInfo.source_type}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-300">Duration:</span>
+                      <span className="text-white">{videoInfo.duration_seconds?.toFixed(1)}s</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-300">FPS:</span>
+                      <span className="text-white">{videoInfo.fps}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-300">Resolution:</span>
+                      <span className="text-white">{videoInfo.resolution}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-300">Size:</span>
+                      <span className="text-white">{videoInfo.file_size_mb} MB</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-300">Frames:</span>
+                      <span className="text-white">{videoInfo.total_frames}</span>
+                    </div>
                   </div>
-                  <div className="mt-4">
+                  <div className="mt-6">
                     <a
                       href={videoInfo.video_url}
                       download={videoInfo.filename}
-                      className="inline-block bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm"
+                      className="group inline-flex items-center gap-2 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white px-4 py-2 rounded-lg text-sm transition-all duration-300 transform hover:scale-105 hover:shadow-lg hover:shadow-blue-400/30"
                     >
+                      <Download className="w-4 h-4 group-hover:animate-bounce" />
                       Download Video
                     </a>
                   </div>
@@ -829,49 +1030,110 @@ export default function Dashboard() {
 
         {/* Route Information */}
         {route && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
             {/* Basic Route Info */}
-            <div className="bg-gray-50 p-6 rounded-lg shadow-md">
-              <h3 className="text-lg font-semibold text-lime-700 mb-4">Route Information</h3>
-              <div className="space-y-2">
-                <p><strong>Route ID:</strong> <span className="text-sm font-mono">{route._id}</span></p>
-                <p><strong>Python Route ID:</strong> <span className="text-sm font-mono">{route.pythonRouteId}</span></p>
-                <p><strong>Start:</strong> {route.start}</p>
-                <p><strong>End:</strong> {route.end}</p>
-                <p><strong>Total Frames:</strong> {route.framesData?.length || 0}</p>
-                <p><strong>Interpolated:</strong> {route.interpolated ? 'Yes' : 'No'}</p>
-                <p><strong>Video Generated:</strong> {route.videoGenerated ? 'Yes' : 'No'}</p>
+            <div className="bg-gray-800/70 backdrop-blur-xl p-6 rounded-2xl shadow-2xl border border-gray-700 animate-slide-up hover:shadow-lime-400/10 transition-all duration-500">
+              <h3 className="text-xl font-semibold text-lime-400 mb-6 flex items-center gap-3">
+                <div className="p-2 bg-lime-400/20 rounded-full">
+                  <Route className="w-5 h-5" />
+                </div>
+                Route Information
+              </h3>
+              <div className="space-y-3 text-sm">
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-300">Route ID:</span>
+                  <span className="text-xs font-mono text-white bg-gray-700/50 px-2 py-1 rounded">{route._id}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-300">Start:</span>
+                  <span className="text-white text-right max-w-48 truncate" title={route.start}>{route.start}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-300">End:</span>
+                  <span className="text-white text-right max-w-48 truncate" title={route.end}>{route.end}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-300">Total Frames:</span>
+                  <span className="text-lime-400 font-semibold">{route.framesData?.length || 0}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-300">Interpolated:</span>
+                  <span className={`font-semibold ${route.interpolated ? 'text-green-400' : 'text-gray-500'}`}>
+                    {route.interpolated ? 'Yes' : 'No'}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-300">Video Generated:</span>
+                  <span className={`font-semibold ${route.videoGenerated ? 'text-green-400' : 'text-gray-500'}`}>
+                    {route.videoGenerated ? 'Yes' : 'No'}
+                  </span>
+                </div>
                 {route.interpolationFactor && (
-                  <p><strong>Interpolation Factor:</strong> {route.interpolationFactor}</p>
+                  <div className="flex justify-between">
+                    <span className="text-gray-300">Interpolation Factor:</span>
+                    <span className="text-white">{route.interpolationFactor}</span>
+                  </div>
                 )}
               </div>
             </div>
 
             {/* Analytics */}
             {analytics && (
-              <div className="bg-gray-50 p-6 rounded-lg shadow-md">
-                <h3 className="text-lg font-semibold text-lime-700 mb-4">Analytics</h3>
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <p><strong>Original Frames:</strong> {analytics.original_frames}</p>
-                    <p><strong>Interpolated:</strong> {analytics.interpolated_frames}</p>
-                    <p><strong>Smoothed:</strong> {analytics.smoothed_frames}</p>
+             <div className="bg-gray-800/70 backdrop-blur-xl p-6 rounded-2xl shadow-2xl border border-gray-700 animate-slide-up hover:shadow-lime-400/10 transition-all duration-500">
+              <h3 className="text-xl font-semibold text-lime-400 mb-6 flex items-center gap-3">
+                <div className="p-2 bg-lime-400/20 rounded-full">
+                  <Navigation className="w-5 h-5" />
+                </div>
+                Analytics
+              </h3>
+                 <div className="grid grid-cols-2 gap-6 text-sm animate-fade-in">
+                  <div className="space-y-3">
+                    <div className="flex justify-between">
+                      <span className="text-gray-300">Original Frames:</span>
+                      <span className="text-blue-400 font-semibold">{analytics.original_frames}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-300">Interpolated:</span>
+                      <span className="text-purple-400 font-semibold">{analytics.interpolated_frames}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-300">Smoothed:</span>
+                      <span className="text-green-400 font-semibold">{analytics.smoothed_frames}</span>
+                    </div>
                   </div>
-                  <div>
-                    <p><strong>Has VO Data:</strong> {analytics.has_vo_data ? 'Yes' : 'No'}</p>
-                    <p><strong>Processed:</strong> {route.processed ? 'Yes' : 'No'}</p>
+                  <div className="space-y-3">
+                    <div className="flex justify-between">
+                      <span className="text-gray-300">Processed:</span>
+                      <span className={`font-semibold ${route.processed ? 'text-green-400' : 'text-gray-500'}`}>
+                        {route.processed ? 'Yes' : 'No'}
+                      </span>
+                    </div>
                     {analytics.heading_stats && (
-                      <p><strong>Avg Heading:</strong> {analytics.heading_stats.mean_heading?.toFixed(1)}°</p>
+                      <div className="flex justify-between">
+                        <span className="text-gray-300">Avg Heading:</span>
+                        <span className="text-white">{analytics.heading_stats.mean_heading?.toFixed(1)}°</span>
+                      </div>
                     )}
                   </div>
                 </div>
 
                 {analytics.smoothed_heading_stats && (
-                  <div className="mt-4 pt-4 border-t border-gray-200">
-                    <h4 className="font-medium text-gray-700 mb-2">Smoothing Effect</h4>
-                    <p className="text-sm"><strong>Smoothing Impact:</strong> {analytics.smoothed_heading_stats.smoothing_effect?.toFixed(2)}°</p>
-                    <p className="text-sm"><strong>Smoothed Avg:</strong> {analytics.smoothed_heading_stats.mean_smoothed_heading?.toFixed(1)}°</p>
+                 <div className="mt-6 pt-4 border-t border-gray-600 animate-fade-in" style={{ animationDelay: '0.2s' }}>
+                  <h4 className="font-medium text-gray-300 mb-3 flex items-center gap-2">
+                    <Zap className="w-4 h-4 text-lime-400" />
+                    Smoothing Effect
+                  </h4>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-gray-300">Smoothing Impact:</span>
+                      <span className="text-orange-400 font-semibold">{analytics.smoothed_heading_stats.smoothing_effect?.toFixed(2)}°</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-300">Smoothed Avg:</span>
+                      <span className="text-lime-400 font-semibold">{analytics.smoothed_heading_stats.mean_smoothed_heading?.toFixed(1)}°</span>
+                    </div>
                   </div>
+                </div>
                 )}
               </div>
             )}
@@ -879,43 +1141,111 @@ export default function Dashboard() {
         )}
 
         {/* Processing Statistics */}
-        {route && route.processingStats && (
-          <div className="mt-6 bg-gradient-to-r from-blue-50 to-purple-50 p-6 rounded-lg shadow-md">
-            <h3 className="text-lg font-semibold text-blue-700 mb-4">Processing Statistics</h3>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
-              <div>
-                <div className="text-2xl font-bold text-blue-600">{route.processingStats.original_frames}</div>
-                <div className="text-sm text-gray-600">Original Frames</div>
-              </div>
-              <div>
-                <div className="text-2xl font-bold text-green-600">{route.processingStats.regenerated_frames}</div>
-                <div className="text-sm text-gray-600">Regenerated</div>
-              </div>
-              <div>
-                <div className="text-2xl font-bold text-purple-600">{route.processingStats.interpolated_frames}</div>
-                <div className="text-sm text-gray-600">Interpolated</div>
-              </div>
-              <div>
-                <div className="text-2xl font-bold text-orange-600">{route.processingStats.total_final_frames}</div>
-                <div className="text-sm text-gray-600">Total Final</div>
-              </div>
+        {/* Processing Statistics */}
+{route && (
+  <div className="bg-gradient-to-r from-gray-800/70 to-gray-700/70 backdrop-blur-xl p-8 rounded-2xl shadow-2xl mb-8 border border-gray-600 animate-slide-up hover:shadow-lime-400/10 transition-all duration-500">
+    <h3 className="text-2xl font-semibold text-lime-400 mb-8 flex items-center gap-3">
+      <div className="p-2 bg-lime-400/20 rounded-full">
+        <Navigation className="w-6 h-6" />
+      </div>
+      Processing Statistics
+    </h3>
+    
+    {route.processingStats ? (
+      <>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
+          <div className="bg-gray-700/50 p-4 rounded-xl border border-gray-600 transform hover:scale-105 transition-all duration-300 animate-fade-in" style={{ animationDelay: '0.1s' }}>
+            <div className="text-3xl font-bold text-blue-400 mb-2 animate-count-up">{route.processingStats.original_frames}</div>
+            <div className="text-sm text-gray-300">Original Frames</div>
+          </div>
+          <div className="bg-gray-700/50 p-4 rounded-xl border border-gray-600 transform hover:scale-105 transition-all duration-300 animate-fade-in" style={{ animationDelay: '0.2s' }}>
+            <div className="text-3xl font-bold text-green-400 mb-2 animate-count-up">{route.processingStats.regenerated_frames}</div>
+            <div className="text-sm text-gray-300">Regenerated</div>
+          </div>
+          <div className="bg-gray-700/50 p-4 rounded-xl border border-gray-600 transform hover:scale-105 transition-all duration-300 animate-fade-in" style={{ animationDelay: '0.3s' }}>
+            <div className="text-3xl font-bold text-purple-400 mb-2 animate-count-up">{route.processingStats.interpolated_frames}</div>
+            <div className="text-sm text-gray-300">Interpolated</div>
+          </div>
+          <div className="bg-gray-700/50 p-4 rounded-xl border border-gray-600 transform hover:scale-105 transition-all duration-300 animate-fade-in" style={{ animationDelay: '0.4s' }}>
+            <div className="text-3xl font-bold text-orange-400 mb-2 animate-count-up">{route.processingStats.total_final_frames}</div>
+            <div className="text-sm text-gray-300">Total Final</div>
+          </div>
+        </div>
+        
+        {route.processingStats.average_consistency && (
+          <div className="mt-8 text-center animate-fade-in" style={{ animationDelay: '0.5s' }}>
+            <div className="text-xl font-medium text-gray-300 mb-4">
+              Motion Consistency: <span className="text-lime-400 font-bold">{(route.processingStats.average_consistency * 100).toFixed(1)}%</span>
             </div>
-            {route.processingStats.average_consistency && (
-              <div className="mt-4 text-center">
-                <div className="text-lg font-medium text-gray-700">
-                  Motion Consistency: <span className="text-blue-600">{(route.processingStats.average_consistency * 100).toFixed(1)}%</span>
-                </div>
-                <div className="w-full bg-gray-200 rounded-full h-2 mt-2">
-                  <div 
-                    className="bg-blue-600 h-2 rounded-full" 
-                    style={{width: `${route.processingStats.average_consistency * 100}%`}}
-                  ></div>
-                </div>
-              </div>
-            )}
+            <div className="w-full bg-gray-700 rounded-full h-4 relative overflow-hidden shadow-inner">
+              <div 
+                className="bg-gradient-to-r from-lime-400 to-lime-500 h-4 rounded-full transition-all duration-1000 ease-out shadow-lg animate-progress-fill"
+                style={{width: `${route.processingStats.average_consistency * 100}%`}}
+              ></div>
+              <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent animate-shimmer"></div>
+            </div>
           </div>
         )}
+      </>
+    ) : (
+        <div className="flex flex-col items-center justify-center py-12 space-y-4">
+          <div className="relative">
+            <div className="w-16 h-16 border-4 border-lime-400/30 border-t-lime-400 rounded-full animate-spin"></div>
+            <div className="absolute inset-0 flex items-center justify-center">
+              <Navigation className="w-6 h-6 text-lime-400 animate-pulse" />
+            </div>
+          </div>
+          <p className="text-gray-400 animate-pulse">Loading processing statistics...</p>
+        </div>
+      )}
+    </div>
+  )}
       </main>
+
+      <style jsx>{`
+        @keyframes fade-in {
+          from { opacity: 0; transform: translateY(20px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        
+        @keyframes slide-up {
+          from { opacity: 0; transform: translateY(30px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        
+        @keyframes slide-down {
+          from { opacity: 0; transform: translateY(-30px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        
+        @keyframes shimmer {
+          0% { transform: translateX(-100%); }
+          100% { transform: translateX(100%); }
+        }
+        
+        .animate-fade-in { animation: fade-in 0.8s ease-out; }
+        .animate-slide-up { animation: slide-up 0.8s ease-out; }
+        .animate-slide-down { animation: slide-down 0.8s ease-out; }
+        .animate-shimmer { animation: shimmer 2s infinite; }
+        
+        /* Custom scrollbar for dark theme */
+        ::-webkit-scrollbar {
+          width: 8px;
+        }
+        
+        ::-webkit-scrollbar-track {
+          background: #1f2937;
+        }
+        
+        ::-webkit-scrollbar-thumb {
+          background: #84cc16;
+          border-radius: 4px;
+        }
+        
+        ::-webkit-scrollbar-thumb:hover {
+          background: #65a30d;
+        }
+      `}</style>
     </div>
   );
 }

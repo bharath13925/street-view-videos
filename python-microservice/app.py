@@ -8,11 +8,15 @@ from pathlib import Path
 import glob
 import json
 from datetime import datetime
+from dotenv import load_dotenv
+
+load_dotenv()  # Add this before getting the environment variable
 
 # ------------------------
 # Config
 # ------------------------
-GOOGLE_MAPS_API_KEY = "AIzaSyBzV-m3nbH7ZPmcXbHNx-WQx_nqbamKpjk"
+GOOGLE_MAPS_API_KEY = os.getenv("PYTHON_API_KEY")
+
 FRAMES_DIR = Path("frames")
 FRAMES_DIR.mkdir(exist_ok=True)
 
@@ -357,11 +361,23 @@ def compute_vo_headings(frames):
     orb = cv2.ORB_create(nfeatures=1000)
     bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
 
+    print(f"🔍 Starting VO computation for {len(frames)} frames")
+
     for i in range(len(frames) - 1):
-        img1 = cv2.imread(frames[i]['filename'], cv2.IMREAD_GRAYSCALE)
-        img2 = cv2.imread(frames[i+1]['filename'], cv2.IMREAD_GRAYSCALE)
+        file1 = frames[i]['filename']
+        file2 = frames[i + 1]['filename']
+
+        # Ensure both files exist
+        if not os.path.exists(file1) or not os.path.exists(file2):
+            print(f"⚠️ Missing file(s): {file1} or {file2}")
+            vo_headings.append(None)
+            continue
+
+        img1 = cv2.imread(file1, cv2.IMREAD_GRAYSCALE)
+        img2 = cv2.imread(file2, cv2.IMREAD_GRAYSCALE)
 
         if img1 is None or img2 is None:
+            print(f"⚠️ Could not read image(s): {file1} or {file2}")
             vo_headings.append(None)
             continue
 
@@ -369,24 +385,32 @@ def compute_vo_headings(frames):
         kp2, des2 = orb.detectAndCompute(img2, None)
 
         if des1 is None or des2 is None:
+            print(f"⚠️ No descriptors for frame pair {i} and {i + 1}")
             vo_headings.append(None)
             continue
 
         matches = bf.match(des1, des2)
         matches = sorted(matches, key=lambda x: x.distance)
+
+        if len(matches) < 4:
+            print(f"⚠️ Not enough matches ({len(matches)}) between frame {i} and {i + 1}")
+            vo_headings.append(None)
+            continue
+
         pts1 = np.float32([kp1[m.queryIdx].pt for m in matches])
         pts2 = np.float32([kp2[m.trainIdx].pt for m in matches])
 
-        if len(pts1) >= 4:
-            M, mask = cv2.estimateAffinePartial2D(pts1, pts2)
-            if M is not None:
-                angle = math.degrees(math.atan2(M[1, 0], M[0, 0]))
-                vo_headings.append(angle)
-            else:
-                vo_headings.append(None)
+        M, mask = cv2.estimateAffinePartial2D(pts1, pts2)
+
+        if M is not None:
+            angle = math.degrees(math.atan2(M[1, 0], M[0, 0]))
+            vo_headings.append(angle)
+            print(f"✅ VO heading [{i}] → [{i + 1}]: {angle:.2f}°")
         else:
+            print(f"⚠️ Transformation matrix estimation failed for pair {i}")
             vo_headings.append(None)
 
+    print(f"🧭 VO computation complete: {len(vo_headings)} headings computed.")
     return vo_headings
 
 # ------------------------
@@ -569,7 +593,16 @@ def generate_frames(route: RouteRequest):
                 "interpolated": False
             })
 
-    vo_headings = compute_vo_headings(frames)
+     # Compute VO headings after all frames are downloaded
+    vo_headings = []
+    if len(frames) > 1:
+        try:
+            vo_headings = compute_vo_headings(frames)
+            print(f"✅ Computed {len(vo_headings)} VO headings")
+        except Exception as e:
+            print(f"⚠️ VO heading computation failed: {e}")
+            vo_headings = [None] * (len(frames) - 1)  # Fill with None values
+    
 
     return {"route_id": route_id, "frames": frames, "vo_headings": vo_headings, "cached": False}
 
