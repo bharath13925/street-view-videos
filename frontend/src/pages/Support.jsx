@@ -30,6 +30,8 @@ const Support = () => {
   });
   const [formSubmitted, setFormSubmitted] = useState(false);
 
+  const backendUrl = import.meta.env.VITE_BACKEND_URL;
+
   const scrollToSection = (sectionId) => {
     const element = document.getElementById(sectionId);
     if (element) element.scrollIntoView({ behavior: 'smooth' });
@@ -44,7 +46,7 @@ const Support = () => {
 
   try {
     // Send form data to backend
-    const response = await fetch(`http://localhost:5000/api/contact/send-email`, { // adjust route if needed
+    const response = await fetch(`${backendUrl}/api/contact/send-email`, { // adjust route if needed
       method: "POST",
       headers: {
         "Content-Type": "application/json",
