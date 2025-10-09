@@ -19,8 +19,9 @@ app.use(express.json());
 // Enable CORS
 app.use(
   cors({
-    origin: "https://street-view-videos.vercel.app", // your Vercel frontend
-    credentials: true, // if you need cookies or auth headers
+    origin: "https://street-view-videos.vercel.app", // your frontend URL
+    methods: ["GET", "POST", "PUT", "DELETE"],
+    credentials: true,
   })
 );
 
