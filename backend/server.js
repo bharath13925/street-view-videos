@@ -24,8 +24,6 @@ app.use(
   })
 );
 
-app.options("*", cors());
-
 // Connect to MongoDB
 mongoose
   .connect(process.env.MONGO_URI)
