@@ -1,4 +1,4 @@
-// routes/routeRoutes.js - Complete routes with caching
+// backend/routes/routeRoutes.js
 import express from "express";
 import { 
   generateRoute, 
@@ -7,48 +7,41 @@ import {
   interpolateFrames,
   processCompletePipeline,
   processCompletePipelineWithVideo,
-  processCompletePipelineWithVideoCached, // New cached version
+  processCompletePipelineWithVideoCached,
   generateVideo,
-  checkExistingRoute, // New endpoint
+  checkExistingRoute,
   getRouteAnalytics 
 } from "../controllers/routeController.js";
 
 const router = express.Router();
 
-// NEW: Check for existing route endpoint
-router.post("/check-existing", checkExistingRoute);
-// Route map endpoint
-router.get("/:routeId/map", async (req, res) => {
-  try {
-    const route = await Route.findById(req.params.routeId);
-    if (!route || !route.routePolyline) {
-      return res.status(404).json({ error: "Route or map data not found" });
-    }
-    
-    const mapUrl = generateStaticMapUrl(route.routePolyline, route.start, route.end);
-    res.json({ map_url: mapUrl, route_info: route.routeInfo });
-  } catch (error) {
-    res.status(500).json({ error: "Failed to generate map" });
-  }
-});
+// ==========================================
+// IMPORTANT: Order matters! 
+// More specific routes MUST come BEFORE parameterized routes
+// ==========================================
 
-// Existing routes
+// 1. Static path routes first (check-existing, process-complete, etc.)
+router.post("/check-existing", checkExistingRoute);
+router.post("/process-complete", processCompletePipeline);
+router.post("/process-complete-with-video", processCompletePipelineWithVideo);
+router.post("/process-complete-with-video-cached", processCompletePipelineWithVideoCached);
+
+// 2. Generation route
 router.post("/generate", generateRoute);
+
+// 3. Routes with :routeId parameter (these must come after static routes)
 router.post("/:routeId/smooth", smoothRoute);
 router.post("/:routeId/regenerate", regenerateFrames);
 router.post("/:routeId/interpolate", interpolateFrames);
-
-// Complete processing routes
-router.post("/process-complete", processCompletePipeline);
-router.post("/process-complete-with-video", processCompletePipelineWithVideo);
-
-// NEW: Cached complete pipeline with video
-router.post("/process-complete-with-video-cached", processCompletePipelineWithVideoCached);
-
-// Video generation routes
 router.post("/:routeId/generate-video", generateVideo);
-
-// Analytics route
 router.get("/:routeId/analytics", getRouteAnalytics);
+
+// Optional: Add a test endpoint to verify routes are working
+router.get("/test", (req, res) => {
+  res.json({ 
+    message: "Route routes are working!",
+    timestamp: new Date().toISOString() 
+  });
+});
 
 export default router;
