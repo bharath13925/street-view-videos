@@ -13,11 +13,12 @@ function UserSignupForm() {
   const [password, setPassword] = useState("");
   const [rePassword, setRePassword] = useState("");
   const navigate = useNavigate();
+  const backendUrl = import.meta.env.VITE_BACKEND_URL;
 
   // Helper: save user in backend
   const saveUserToBackend = async (userData) => {
     try {
-      await fetch("http://localhost:5000/api/users/signup", {
+      await fetch(`${backendUrl}/api/users/signup`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(userData),
