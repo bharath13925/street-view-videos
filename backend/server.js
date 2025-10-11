@@ -6,11 +6,15 @@ import dotenv from "dotenv";
 import userRoutes from "./routes/userRoutes.js";
 import routeRoutes from "./routes/routeRoutes.js";
 import emailRoutes from "./routes/emailRoutes.js";
+
 dotenv.config();
+
 const app = express();
 const PORT = process.env.PORT || 5000;
+
 // Middleware to parse JSON
 app.use(express.json());
+
 // Enable CORS
 app.use(
   cors({
@@ -19,20 +23,23 @@ app.use(
     credentials: true,
   })
 );
+
 // Connect to MongoDB
 mongoose
   .connect(process.env.MONGO_URI)
   .then(() => {
     console.log("✅ MongoDB Connected Successfully!");
     app.listen(PORT, () =>
-      console.log(🚀 Server running at http://localhost:${PORT})
+      console.log(`🚀 Server running at http://localhost:${PORT}`)
     );
   })
   .catch((err) => console.error("❌ MongoDB connection error:", err));
+
 // Routes
 app.use("/api/users", userRoutes);
 app.use("/api/routes", routeRoutes);
 app.use("/api/contact", emailRoutes);
+
 // Test Route
 app.get("/", (req, res) => {
   res.send("Hello World 🌍 Backend + MongoDB!");
