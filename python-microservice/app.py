@@ -887,7 +887,10 @@ def process_complete_pipeline(request: CompleteProcessRequest):
         gen_result = generate_frames(route_request)
         if "error" in gen_result:
             return {"error": gen_result["error"], "details": "Failed at generation step"}
-        
+        # Store vo_headings from generation
+        vo_headings = gen_result.get("vo_headings", [])
+        print(f"📊 Retrieved {len(vo_headings)} VO headings from generation")
+
         # Convert dict frames to Frame objects for validation
         try:
             frame_objects = [Frame(**frame_dict) for frame_dict in gen_result["frames"]]
@@ -927,6 +930,7 @@ def process_complete_pipeline(request: CompleteProcessRequest):
             "pipeline_success": True,
             "steps_completed": 4,
             "final_frames": [frame.dict() for frame in interp_result["frames"]],
+            "vo_headings": vo_headings,
             "statistics": {
                 "original_frames": len(gen_result.get("frames", [])),
                 "regenerated_frames": regen_result.get("regenerated_count", 0),

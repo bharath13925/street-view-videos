@@ -17,20 +17,6 @@ const router = express.Router();
 
 // NEW: Check for existing route endpoint
 router.post("/check-existing", checkExistingRoute);
-// Route map endpoint
-router.get("/:routeId/map", async (req, res) => {
-  try {
-    const route = await Route.findById(req.params.routeId);
-    if (!route || !route.routePolyline) {
-      return res.status(404).json({ error: "Route or map data not found" });
-    }
-    
-    const mapUrl = generateStaticMapUrl(route.routePolyline, route.start, route.end);
-    res.json({ map_url: mapUrl, route_info: route.routeInfo });
-  } catch (error) {
-    res.status(500).json({ error: "Failed to generate map" });
-  }
-});
 
 // Existing routes
 router.post("/generate", generateRoute);

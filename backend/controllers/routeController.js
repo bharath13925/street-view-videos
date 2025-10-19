@@ -863,12 +863,17 @@ export const processCompletePipelineWithVideo = async (req, res) => {
       });
     }
 
+    // Extract vo_headings from Python response
+    const voHeadings = pyResp.data.vo_headings || [];
+    console.log(`📊 Received ${voHeadings.length} VO headings from pipeline`);
+
     const newRoute = new Route({
       userId,
       start,
       end,
       pythonRouteId: pyResp.data.route_id,
       framesData: pyResp.data.final_frames,
+      voHeadings: voHeadings,
       processed: true,
       interpolated: true,
       interpolationFactor: interpolation_factor,

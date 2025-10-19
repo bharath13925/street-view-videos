@@ -17,13 +17,7 @@ const PORT = process.env.PORT || 5000;
 app.use(express.json());
 
 // Enable CORS
-app.use(
-  cors({
-    origin: "https://street-view-videos.vercel.app", // your frontend URL
-    methods: ["GET", "POST", "PUT", "DELETE"],
-    credentials: true,
-  })
-);
+app.use(cors());
 
 // Connect to MongoDB
 mongoose
