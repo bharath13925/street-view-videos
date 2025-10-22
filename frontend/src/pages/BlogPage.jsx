@@ -1,10 +1,15 @@
 import React from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, MapPin, User, Calendar, Clock, Navigation, BookOpen, Zap, Route } from 'lucide-react';
+import { useEffect } from 'react';
 
 const BlogPage = () => {
   const { slug } = useParams();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
 
   const blogPosts = {
     'city-exploration': {

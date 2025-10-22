@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState ,useEffect} from "react";
 import { auth, googleProvider } from "../firebase";
 import {
   createUserWithEmailAndPassword,
@@ -14,6 +14,10 @@ function UserSignupForm() {
   const [rePassword, setRePassword] = useState("");
   const navigate = useNavigate();
   const backendUrl = import.meta.env.VITE_BACKEND_URL;
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
 
   // Helper: save user in backend
   const saveUserToBackend = async (userData) => {
