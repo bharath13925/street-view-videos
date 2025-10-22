@@ -5,37 +5,38 @@ const FAQ = () => {
   const [openFAQ, setOpenFAQ] = useState(null);
 
   const faqData = [
-    {
-      question: "How does RouteVision work?",
-      answer:
-        "RouteVision combines Google Maps API with Street View integration to provide immersive route visualization. Simply enter your destination and explore routes with 360-degree video previews.",
-    },
-    {
-      question: "Is RouteVision free to use?",
-      answer:
-        "We offer both free and premium plans. The free plan includes basic route finding, while premium features include unlimited route saving, offline maps, and advanced customization options.",
-    },
-    {
-      question: "Can I use RouteVision offline?",
-      answer:
-        "With our premium plan, you can download maps and routes for offline use. Perfect for areas with limited internet connectivity.",
-    },
-    {
-      question: "How accurate are the routes?",
-      answer:
-        "Our routes are powered by Google Maps API, ensuring high accuracy and real-time updates for traffic conditions, road closures, and optimal path calculation.",
-    },
-    {
-      question: "Can I share routes with friends?",
-      answer:
-        "Yes! Our social sharing feature allows you to share your favorite routes with friends and family, making trip planning collaborative and fun.",
-    },
-    {
-      question: "Does RouteVision work internationally?",
-      answer:
-        "RouteVision works globally wherever Google Maps is available. We support route planning and navigation in most countries worldwide.",
-    },
-  ];
+  {
+    question: "What is the main purpose of this system?",
+    answer:
+      "The system aims to generate smooth and realistic route visualization videos for Vijayawada using Google Maps and Street View data. It helps users preview their routes as immersive drive-through experiences rather than static maps."
+  },
+  {
+    question: "How are the routes visualized?",
+    answer:
+      "The system fetches Street View images along the selected path using latitude, longitude, and heading values. These images are processed using Visual Odometry, LSTM smoothing, and Optical Flow interpolation to create a continuous and realistic video of the route."
+  },
+  {
+    question: "What technologies and APIs are used?",
+    answer:
+      "It integrates multiple Google Maps APIs including Directions, Street View Static, and Static Maps APIs, combined with Python-based processing using OpenCV, TensorFlow, and deep  learning models for image smoothing and interpolation."
+  },
+  {
+    question: "How does the system ensure smooth transitions between frames?",
+    answer:
+      "The system applies LSTM models trained on the KITTI Odometry dataset to refine noisy GPS headings, and uses Optical Flow algorithms such as Farneback and RAFT to generate interpolated frames for continuous motion."
+  },
+  {
+    question: "Can this system be extended beyond Vijayawada?",
+    answer:
+      "Yes. Although initially focused on Vijayawada, the framework can be adapted to any city supported by Google Street View by changing the input coordinates and route parameters."
+  },
+  {
+    question: "What are the main outputs of the system?",
+    answer:
+      "The final outputs include a smooth route visualization video, a static reference map highlighting start and end points, and performance metrics showing processing time, smoothness improvement, and frame interpolation success rate."
+  }
+];
+
 
   const toggleFAQ = (index) => {
     setOpenFAQ(openFAQ === index ? null : index);

@@ -1,11 +1,9 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { MapPin, Shield, Zap, Globe, Navigation, Clock, Camera, Map, Route, Users, Star, Heart, ChevronDown, ChevronUp } from "lucide-react";
+import { MapPin, Shield, Globe, Navigation,  Brain, Film,Waves,Activity,Laptop, Camera, Map } from "lucide-react";
 
 import streetview from "../assets/streetview.jpeg";
-import img2 from "../assets/video.jpeg";
 import routeplanning from "../assets/routeplanning.jpeg";
-import img4 from "../assets/explore.jpeg";
 import blog1 from "../assets/blog1.png";
 import blog2 from "../assets/blog2.png";
 import blog3 from "../assets/blog3.png";
@@ -50,62 +48,57 @@ const MainPage = () => {
   };
 
   const features = [
-    {
-      icon: <Globe className="text-5xl text-lime-400 mx-auto mb-4 transition-all duration-300 group-hover:scale-110 group-hover:text-lime-300" />,
-      title: "Street View Integration",
-      description: "Immersive 360-degree street views of your routes before you travel"
-    },
-    {
-      icon: <Zap className="text-5xl text-lime-400 mx-auto mb-4 transition-all duration-300 group-hover:scale-110 group-hover:text-lime-300" />,
-      title: "Real-time Updates",
-      description: "More realistic and user-friendly navigation previews."
-    },
-    {
-      icon: <Shield className="text-5xl text-lime-400 mx-auto mb-4 transition-all duration-300 group-hover:scale-110 group-hover:text-lime-300" />,
-      title: "Safe & Secure",
-      description: "Enjoy smooth and secure route video experiences, optimized for travelers in Vijayawada and beyond."
-    },
-    {
-      icon: <Navigation className="text-5xl text-lime-400 mx-auto mb-4 transition-all duration-300 group-hover:scale-110 group-hover:text-lime-300" />,
-      title: "Smart Navigation",
-      description: "AI-powered route optimization for the best travel experience"
-    },
-    {
-      icon: <Clock className="text-5xl text-lime-400 mx-auto mb-4 transition-all duration-300 group-hover:scale-110 group-hover:text-lime-300" />,
-      title: "Time Predictions",
-      description: "Accurate arrival time estimates with traffic analysis"
-    },
-    {
-      icon: <Camera className="text-5xl text-lime-400 mx-auto mb-4 transition-all duration-300 group-hover:scale-110 group-hover:text-lime-300" />,
-      title: "Photo Integration",
-      description: "Capture and share memorable moments along your journey"
-    },
-    {
-      icon: <Map className="text-5xl text-lime-400 mx-auto mb-4 transition-all duration-300 group-hover:scale-110 group-hover:text-lime-300" />,
-      title: "Offline Maps",
-      description: "Download maps for offline use in remote areas"
-    },
-    {
-      icon: <Route className="text-5xl text-lime-400 mx-auto mb-4 transition-all duration-300 group-hover:scale-110 group-hover:text-lime-300" />,
-      title: "Route History",
-      description: "Keep track of your favorite routes and travel history"
-    },
-    {
-      icon: <Users className="text-5xl text-lime-400 mx-auto mb-4 transition-all duration-300 group-hover:scale-110 group-hover:text-lime-300" />,
-      title: "Social Sharing",
-      description: "Share routes with friends and discover community favorites"
-    },
-    {
-      icon: <Star className="text-5xl text-lime-400 mx-auto mb-4 transition-all duration-300 group-hover:scale-110 group-hover:text-lime-300" />,
-      title: "Route Rating",
-      description: "Rate and review routes to help other travelers"
-    },
-    {
-      icon: <Heart className="text-5xl text-lime-400 mx-auto mb-4 transition-all duration-300 group-hover:scale-110 group-hover:text-lime-300" />,
-      title: "Favorites",
-      description: "Save your favorite destinations and routes for quick access"
-    }
-  ];
+  {
+    icon: <Map className="text-5xl text-lime-400 mx-auto mb-4 transition-all duration-300 group-hover:scale-110 group-hover:text-lime-300" />,
+    title: "Smart Route Mapping",
+    description: "Generates optimal routes between start and end points using Google Directions API."
+  },
+  {
+    icon: <Globe className="text-5xl text-lime-400 mx-auto mb-4 transition-all duration-300 group-hover:scale-110 group-hover:text-lime-300" />,
+    title: "Street View Integration",
+    description: "Displays realistic 360° Street View imagery for a real-world route preview."
+  },
+  {
+    icon: <Camera className="text-5xl text-lime-400 mx-auto mb-4 transition-all duration-300 group-hover:scale-110 group-hover:text-lime-300" />,
+    title: "Visual Odometry Refinement",
+    description: "Enhances orientation accuracy using ORB feature detection and affine transformation."
+  },
+  {
+    icon: <Brain className="text-5xl text-lime-400 mx-auto mb-4 transition-all duration-300 group-hover:scale-110 group-hover:text-lime-300" />,
+    title: "LSTM-Based Smoothing",
+    description: "Applies deep learning to remove GPS noise and generate smooth, continuous route motion."
+  },
+  {
+    icon: <Film className="text-5xl text-lime-400 mx-auto mb-4 transition-all duration-300 group-hover:scale-110 group-hover:text-lime-300" />,
+    title: "Video Generation",
+    description: "Creates a seamless and realistic route visualization video using interpolated Street View frames."
+  },
+  {
+    icon: <Waves className="text-5xl text-lime-400 mx-auto mb-4 transition-all duration-300 group-hover:scale-110 group-hover:text-lime-300" />,
+    title: "Optical Flow Interpolation",
+    description: "Generates intermediate frames with Farneback and RAFT algorithms for smoother playback."
+  },
+  {
+    icon: <Activity className="text-5xl text-lime-400 mx-auto mb-4 transition-all duration-300 group-hover:scale-110 group-hover:text-lime-300" />,
+    title: "Performance Metrics",
+    description: "Analyzes heading smoothness, frame success rate, and total processing time for route visualization."
+  },
+  {
+    icon: <Navigation className="text-5xl text-lime-400 mx-auto mb-4 transition-all duration-300 group-hover:scale-110 group-hover:text-lime-300" />,
+    title: "Static Map Display",
+    description: "Generates a Google Static Map highlighting start and end points with the complete route overlay."
+  },
+  {
+    icon: <Laptop className="text-5xl text-lime-400 mx-auto mb-4 transition-all duration-300 group-hover:scale-110 group-hover:text-lime-300" />,
+    title: "Interactive Dashboard",
+    description: "Provides a GUI for user input, progress tracking, and viewing of map and video outputs."
+  },
+  {
+    icon: <Shield className="text-5xl text-lime-400 mx-auto mb-4 transition-all duration-300 group-hover:scale-110 group-hover:text-lime-300" />,
+    title: "Fallback Mechanism",
+    description: "Ensures robust performance by reverting to GPS headings when visual odometry fails."
+  }
+];
 
   return (
     <div className="min-h-screen bg-black overflow-x-hidden">
