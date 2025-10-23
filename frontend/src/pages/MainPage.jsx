@@ -31,6 +31,11 @@ const MainPage = () => {
     return () => clearInterval(interval);
   }, [images.length]);
 
+  
+  useEffect(() => {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }, []);
+
   const handleLogin = () => {
     navigate("/login");
   };
