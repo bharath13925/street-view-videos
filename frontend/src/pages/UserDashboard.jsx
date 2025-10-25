@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { getAuth, onAuthStateChanged } from "firebase/auth";
-import { MapPin, Route, Video, Play, Download, Clock, FileVideo, Camera, Navigation, Zap, Map } from "lucide-react";
+import { MapPin, Route, Video, Play, Download, Clock, FileVideo, Camera, Navigation, Zap, Map, ExternalLink } from "lucide-react";
 
 export default function Dashboard() {
   const [user, setUser] = useState(null);
@@ -15,6 +15,7 @@ export default function Dashboard() {
   const [analytics, setAnalytics] = useState(null);
   const [cacheStatus, setCacheStatus] = useState(null);
   const [mapImageUrl, setMapImageUrl] = useState(null);
+  const [distance, setDistance] = useState(null);
   
   // Video generation states
   const [videoLoading, setVideoLoading] = useState(false);
@@ -29,7 +30,35 @@ export default function Dashboard() {
   const startRef = useRef(null);
   const endRef = useRef(null);
   const backendUrl = import.meta.env.VITE_BACKEND_URL;
-  const pythonUrl=import.meta.env.VITE_MICROSERVICE_URL;
+  const pythonUrl = import.meta.env.VITE_MICROSERVICE_URL;
+
+  // Calculate distance between two coordinates using Haversine formula
+  const calculateDistance = (lat1, lon1, lat2, lon2) => {
+    const R = 6371; // Earth's radius in kilometers
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = 
+      Math.sin(dLat/2) * Math.sin(dLat/2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+      Math.sin(dLon/2) * Math.sin(dLon/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    const distance = R * c;
+    return distance;
+  };
+
+  // Format distance for display
+  const formatDistance = (distanceKm) => {
+    if (distanceKm < 1) {
+      return `${(distanceKm * 1000).toFixed(0)} m`;
+    }
+    return `${distanceKm.toFixed(2)} km`;
+  };
+
+  // Generate Google Maps URL
+  const getGoogleMapsUrl = () => {
+    if (!startCoords || !endCoords) return null;
+    return `https://www.google.com/maps/dir/?api=1&origin=${startCoords.lat},${startCoords.lng}&destination=${endCoords.lat},${endCoords.lng}&travelmode=driving`;
+  };
 
   useEffect(() => {
     // Fetch logged-in Firebase user
@@ -90,21 +119,30 @@ export default function Dashboard() {
     }
 
     return () => unsubscribe();
-  }, []);
+  }, [backendUrl]);
 
   // Generate static map when coordinates are available
   useEffect(() => {
     if (startCoords && endCoords) {
       generateStaticMap();
+      // Calculate distance
+      const dist = calculateDistance(
+        startCoords.lat,
+        startCoords.lng,
+        endCoords.lat,
+        endCoords.lng
+      );
+      setDistance(dist);
     } else {
       setMapImageUrl(null);
+      setDistance(null);
     }
   }, [startCoords, endCoords]);
 
   const generateStaticMap = () => {
     if (!startCoords || !endCoords) return;
 
-    const API_KEY = import.meta.env.VITE_PLACES_API_KEY ;
+    const API_KEY = import.meta.env.VITE_PLACES_API_KEY;
     
     // Calculate center point
     const centerLat = (startCoords.lat + endCoords.lat) / 2;
@@ -157,7 +195,7 @@ export default function Dashboard() {
         });
       }
     }
-  }, [route]);
+  }, [route, pythonUrl]);
 
   const fetchAnalytics = async (routeId) => {
     try {
@@ -226,7 +264,6 @@ export default function Dashboard() {
     setStatus("Generating route...");
 
     try {
-      // Step 1: Generate initial route
       const genResponse = await fetch(
         `${backendUrl}/api/routes/generate`,
         {
@@ -247,10 +284,8 @@ export default function Dashboard() {
       
       const generatedRoute = genData.route;
       setRoute(generatedRoute);
-      console.log("Route generated:", generatedRoute);
       setStatus("Route generated successfully! Smoothing headings...");
 
-      // Step 2: Smooth the route headings
       const smoothResponse = await fetch(
         `${backendUrl}/api/routes/${generatedRoute._id}/smooth`,
         { method: "POST" }
@@ -260,18 +295,14 @@ export default function Dashboard() {
       if (smoothResponse.ok && smoothData.route) {
         const smoothedRoute = smoothData.route;
         setRoute(smoothedRoute);
-        console.log("Route smoothed successfully:", smoothedRoute);
         
         const smoothedHeadings = smoothedRoute.framesData?.map(f => f.smoothedHeading) || [];
-        console.log("Smoothed headings:", smoothedHeadings);
         
         if (smoothedHeadings.every(h => h === null || h === undefined)) {
-          console.warn("Warning: All smoothed headings are null/undefined");
           setStatus("Route smoothed, but no headings were processed.");
         } else {
           setStatus("Headings smoothed! Regenerating frames with corrected headings...");
           
-          // Step 3: Regenerate frames with smoothed headings
           const regenerateResponse = await fetch(
             `${backendUrl}/api/routes/${smoothedRoute._id}/regenerate`,
             { method: "POST" }
@@ -283,15 +314,12 @@ export default function Dashboard() {
             setRoute(finalRoute);
             
             const regeneratedCount = regenerateData.regenerated_count || 0;
-            console.log(`Successfully regenerated ${regeneratedCount} frames`);
             setStatus(`Route processed successfully! ${regeneratedCount} frames regenerated. Ready for interpolation.`);
           } else {
-            console.error("Unexpected regenerate response:", regenerateData);
             setStatus("Route smoothed, but frame regeneration failed.");
           }
         }
       } else {
-        console.error("Unexpected smooth response:", smoothData);
         setStatus("Route generated, but smoothing failed.");
       }
 
@@ -317,7 +345,7 @@ export default function Dashboard() {
     }
 
     setLoading(true);
-    setStatus("Starting complete pipeline (Generate → Smooth → Regenerate → Interpolate)...");
+    setStatus("Starting complete pipeline...");
 
     try {
       const response = await fetch(
@@ -338,10 +366,8 @@ export default function Dashboard() {
       if (response.ok && data.pipeline_success) {
         setRoute(data.route);
         const stats = data.statistics;
-        console.log("Complete pipeline successful:", data);
-        setStatus(`Complete pipeline successful! Generated ${stats.total_final_frames} total frames (${stats.original_frames} original + ${stats.interpolated_frames} interpolated)`);
+        setStatus(`Complete pipeline successful! Generated ${stats.total_final_frames} total frames`);
       } else {
-        console.error("Pipeline failed:", data);
         setStatus(`Pipeline failed: ${data.error}`);
       }
 
@@ -394,12 +420,11 @@ export default function Dashboard() {
         
         if (data.video_info) {
           setVideoInfo(data.video_info);
-          setStatus(`Complete pipeline with video successful! Generated ${stats.total_final_frames} frames and video (${data.video_info.file_size_mb} MB)`);
+          setStatus(`Complete pipeline with video successful! Generated ${stats.total_final_frames} frames and video`);
         } else {
           setStatus(`Complete pipeline successful! Generated ${stats.total_final_frames} frames (video generation failed)`);
         }
       } else {
-        console.error("Pipeline failed:", data);
         setStatus(`Pipeline failed: ${data.error}`);
       }
 
@@ -414,13 +439,7 @@ export default function Dashboard() {
   const handleSmartPipelineWithCache = async (e) => {
     e.preventDefault();
     
-    if (!user) {
-      console.error("User not logged in");
-      return;
-    }
-
-    if (!startLocation || !endLocation) {
-      console.error("Both start and end locations are required");
+    if (!user || !startLocation || !endLocation) {
       return;
     }
 
@@ -459,12 +478,11 @@ export default function Dashboard() {
         if (data.video_info) {
           setVideoInfo(data.video_info);
           setVideoStatus(data.cached 
-            ? `Using cached video: ${data.video_info.filename} (${data.video_info.file_size_mb} MB)`
-            : `New video generated: ${data.video_info.filename} (${data.video_info.file_size_mb} MB)`
+            ? `Using cached video: ${data.video_info.filename}`
+            : `New video generated: ${data.video_info.filename}`
           );
         }
       } else {
-        console.error("Smart pipeline failed:", data);
         setStatus(`Smart pipeline failed: ${data.error}`);
       }
 
@@ -477,10 +495,7 @@ export default function Dashboard() {
   };
 
   const interpolateFrames = async () => {
-    if (!route || !route._id) {
-      console.error("No route available for interpolation");
-      return;
-    }
+    if (!route || !route._id) return;
 
     setLoading(true);
     setStatus("Applying optical flow interpolation...");
@@ -502,15 +517,11 @@ export default function Dashboard() {
         const updatedRoute = data.route;
         const stats = data.interpolation_stats;
         setRoute(updatedRoute);
-        
-        console.log("Interpolation successful:", data);
-        setStatus(`Optical flow interpolation complete! Generated ${stats.interpolated_count} new frames (${stats.total_count} total, consistency: ${(stats.average_consistency * 100).toFixed(1)}%)`);
+        setStatus(`Optical flow interpolation complete! Generated ${stats.interpolated_count} new frames`);
       } else {
-        console.error("Interpolation failed:", data);
         setStatus(`Interpolation failed: ${data.error}`);
       }
     } catch (err) {
-      console.error("Error interpolating frames:", err);
       setStatus(`Error interpolating frames: ${err.message}`);
     } finally {
       setLoading(false);
@@ -518,10 +529,7 @@ export default function Dashboard() {
   };
 
   const regenerateFrames = async () => {
-    if (!route || !route._id) {
-      console.error("No route available for regeneration");
-      return;
-    }
+    if (!route || !route._id) return;
 
     setLoading(true);
     setStatus("Regenerating frames with smoothed headings...");
@@ -538,14 +546,11 @@ export default function Dashboard() {
         setRoute(updatedRoute);
         
         const regeneratedCount = regenerateData.regenerated_count || 0;
-        console.log(`Successfully regenerated ${regeneratedCount} frames`);
         setStatus(`${regeneratedCount} frames regenerated with smoothed headings!`);
       } else {
-        console.error("Unexpected regenerate response:", regenerateData);
         setStatus("Frame regeneration failed.");
       }
     } catch (err) {
-      console.error("Error regenerating frames:", err);
       setStatus(`Error regenerating frames: ${err.message}`);
     } finally {
       setLoading(false);
@@ -553,10 +558,7 @@ export default function Dashboard() {
   };
 
   const generateVideo = async () => {
-    if (!route || !route._id) {
-      console.error("No route available for video generation");
-      return;
-    }
+    if (!route || !route._id) return;
 
     setVideoLoading(true);
     setVideoStatus("Generating video from processed frames...");
@@ -579,9 +581,8 @@ export default function Dashboard() {
       const data = await response.json();
       if (response.ok && data.video_info) {
         setVideoInfo(data.video_info);
-        setVideoStatus(`Video generated successfully! ${data.video_info.file_size_mb} MB, ${data.video_info.duration_seconds?.toFixed(1)}s duration`);
+        setVideoStatus(`Video generated successfully! ${data.video_info.file_size_mb} MB`);
         
-        // Update route state with video info
         setRoute(prevRoute => ({
           ...prevRoute,
           videoGenerated: true,
@@ -589,11 +590,9 @@ export default function Dashboard() {
           videoStats: data.video_info
         }));
       } else {
-        console.error("Video generation failed:", data);
         setVideoStatus(`Video generation failed: ${data.error}`);
       }
     } catch (err) {
-      console.error("Error generating video:", err);
       setVideoStatus(`Error generating video: ${err.message}`);
     } finally {
       setVideoLoading(false);
@@ -602,26 +601,23 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-black text-white relative overflow-hidden">
-      {/* Animated background elements */}
       <div className="absolute inset-0 pointer-events-none">
         <div className="absolute top-10 left-10 w-20 h-20 bg-lime-400/10 rounded-full animate-bounce blur-sm"></div>
         <div className="absolute top-32 right-20 w-16 h-16 bg-lime-400/15 rounded-full animate-pulse"></div>
         <div className="absolute bottom-20 left-1/4 w-24 h-24 bg-lime-400/8 rounded-full animate-bounce blur-sm" style={{ animationDelay: '0.5s' }}></div>
         <div className="absolute bottom-32 right-10 w-12 h-12 bg-lime-400/20 rounded-full animate-pulse" style={{ animationDelay: '0.7s' }}></div>
-        
-        {/* Geometric shapes */}
         <div className="absolute top-20 right-1/4 w-8 h-8 border-2 border-lime-400/20 transform rotate-45 animate-spin opacity-30" style={{ animationDuration: '8s' }}></div>
         <div className="absolute bottom-1/3 left-1/4 w-6 h-6 bg-lime-400/15 transform rotate-12 animate-pulse"></div>
       </div>
 
-      <header className="relative z-10 bg-gradient-to-r from-gray-900/90 to-gray-800/90 backdrop-blur-xl text-white p-6 shadow-2xl border-b border-gray-700 animate-slide-down">
+      <header className="relative z-10 bg-gradient-to-r from-gray-900/90 to-gray-800/90 backdrop-blur-xl text-white p-6 shadow-2xl border-b border-gray-700">
         <div className="flex items-center gap-4 mb-2">
           <div className="p-3 bg-lime-400/20 rounded-full">
             <Navigation className="text-lime-400 text-2xl animate-pulse" />
           </div>
           <div>
-            <h1 className="text-3xl font-bold text-lime-400 animate-fade-in">RouteVision Dashboard</h1>
-            <p className="text-gray-300 mt-1 animate-fade-in" style={{ animationDelay: '0.2s' }}>
+            <h1 className="text-3xl font-bold text-lime-400">RouteVision Dashboard</h1>
+            <p className="text-gray-300 mt-1">
               Generate → Smooth → Regenerate → Interpolate → Video generation with interactive map
             </p>
           </div>
@@ -629,7 +625,7 @@ export default function Dashboard() {
       </header>
 
       <main className="relative z-10 p-8 max-w-7xl mx-auto">
-        <div className="flex items-center gap-3 mb-6 animate-slide-up">
+        <div className="flex items-center gap-3 mb-6">
           <div className="w-10 h-10 bg-gradient-to-r from-lime-400 to-lime-500 rounded-full flex items-center justify-center animate-bounce">
             <MapPin className="text-black text-lg" />
           </div>
@@ -638,13 +634,13 @@ export default function Dashboard() {
           </h2>
         </div>
         
-        <p className="mb-8 text-gray-300 text-lg animate-slide-up" style={{ animationDelay: '0.1s' }}>
+        <p className="mb-8 text-gray-300 text-lg">
           Create smooth street view sequences with LSTM smoothing, optical flow interpolation, video generation, and interactive route visualization.
         </p>
 
-        <form className="bg-gray-800/70 backdrop-blur-xl p-8 rounded-2xl shadow-2xl mb-8 border border-gray-700 animate-slide-up hover:shadow-lime-400/10 transition-all duration-500" style={{ animationDelay: '0.2s' }}>
+        <form className="bg-gray-800/70 backdrop-blur-xl p-8 rounded-2xl shadow-2xl mb-8 border border-gray-700">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-            <div className="animate-slide-up" style={{ animationDelay: '0.3s' }}>
+            <div>
               <label className="flex items-center gap-2 text-sm font-medium text-lime-400 mb-3">
                 <MapPin className="w-4 h-4" />
                 Start Location
@@ -655,12 +651,12 @@ export default function Dashboard() {
                 value={startLocation}
                 onChange={(e) => setStartLocation(e.target.value)}
                 placeholder="Enter start location"
-                className="w-full p-3 bg-gray-700/70 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-lime-400 focus:border-transparent transition-all duration-300 hover:shadow-lg hover:shadow-lime-400/10 backdrop-blur-sm"
+                className="w-full p-3 bg-gray-700/70 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-lime-400 focus:border-transparent transition-all duration-300"
                 disabled={loading}
               />
             </div>
 
-            <div className="animate-slide-up" style={{ animationDelay: '0.4s' }}>
+            <div>
               <label className="flex items-center gap-2 text-sm font-medium text-lime-400 mb-3">
                 <Navigation className="w-4 h-4" />
                 End Location
@@ -671,14 +667,14 @@ export default function Dashboard() {
                 value={endLocation}
                 onChange={(e) => setEndLocation(e.target.value)}
                 placeholder="Enter destination"
-                className="w-full p-3 bg-gray-700/70 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-lime-400 focus:border-transparent transition-all duration-300 hover:shadow-lg hover:shadow-lime-400/10 backdrop-blur-sm"
+                className="w-full p-3 bg-gray-700/70 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-lime-400 focus:border-transparent transition-all duration-300"
                 disabled={loading}
               />
             </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-            <div className="animate-slide-up" style={{ animationDelay: '0.5s' }}>
+            <div>
               <label className="flex items-center gap-2 text-sm font-medium text-lime-400 mb-3">
                 <Zap className="w-4 h-4" />
                 Interpolation Factor
@@ -686,7 +682,7 @@ export default function Dashboard() {
               <select
                 value={interpolationFactor}
                 onChange={(e) => setInterpolationFactor(parseInt(e.target.value))}
-                className="w-full p-3 bg-gray-700/70 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-lime-400 focus:border-transparent transition-all duration-300 hover:shadow-lg hover:shadow-lime-400/10"
+                className="w-full p-3 bg-gray-700/70 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-lime-400 focus:border-transparent transition-all duration-300"
                 disabled={loading}
               >
                 <option value={1}>1 (2x frames)</option>
@@ -696,7 +692,7 @@ export default function Dashboard() {
               </select>
             </div>
 
-            <div className="animate-slide-up" style={{ animationDelay: '0.6s' }}>
+            <div>
               <label className="flex items-center gap-2 text-sm font-medium text-lime-400 mb-3">
                 <Clock className="w-4 h-4" />
                 Video FPS
@@ -704,7 +700,7 @@ export default function Dashboard() {
               <select
                 value={videoSettings.fps}
                 onChange={(e) => setVideoSettings({...videoSettings, fps: parseInt(e.target.value)})}
-                className="w-full p-3 bg-gray-700/70 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-lime-400 focus:border-transparent transition-all duration-300 hover:shadow-lg hover:shadow-lime-400/10"
+                className="w-full p-3 bg-gray-700/70 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-lime-400 focus:border-transparent transition-all duration-300"
                 disabled={loading || videoLoading}
               >
                 <option value={1}>1 FPS</option>
@@ -718,7 +714,7 @@ export default function Dashboard() {
               </select>
             </div>
 
-            <div className="animate-slide-up" style={{ animationDelay: '0.7s' }}>
+            <div>
               <label className="flex items-center gap-2 text-sm font-medium text-lime-400 mb-3">
                 <FileVideo className="w-4 h-4" />
                 Video Quality
@@ -744,12 +740,11 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* Cache Status Display */}
           {cacheStatus && (
-            <div className={`p-4 rounded-lg mb-6 border transition-all duration-300 animate-slide-up ${
+            <div className={`p-4 rounded-lg mb-6 border transition-all duration-300 ${
               cacheStatus.cached ? 'bg-green-900/30 border-green-500/30 text-green-300' : 
               cacheStatus.error ? 'bg-red-900/30 border-red-500/30 text-red-300' : 'bg-yellow-900/30 border-yellow-500/30 text-yellow-300'
-            }`} style={{ animationDelay: '0.8s' }}>
+            }`}>
               {cacheStatus.cached ? (
                 <div>
                   <p className="font-medium mb-2 flex items-center gap-2">
@@ -757,13 +752,12 @@ export default function Dashboard() {
                     Cached Route Found!
                   </p>
                   <p className="text-sm opacity-90">
-                    Route with {cacheStatus.route?.framesData?.length || 0} frames and 
-                    {cacheStatus.video_info ? ` video (${cacheStatus.video_info.file_size_mb} MB)` : ' no video'} available.
+                    Route with {cacheStatus.route?.framesData?.length || 0} frames available.
                   </p>
                   <button
                     type="button"
                     onClick={handleUseCachedRoute}
-                    className="mt-3 bg-green-600/70 hover:bg-green-600 text-white px-4 py-2 rounded-md text-sm transition-all duration-300 transform hover:scale-105 backdrop-blur-sm cursor-pointer"
+                    className="mt-3 bg-green-600/70 hover:bg-green-600 text-white px-4 py-2 rounded-md text-sm transition-all duration-300 transform hover:scale-105"
                     disabled={loading || videoLoading}
                   >
                     Use Cached Route
@@ -783,14 +777,14 @@ export default function Dashboard() {
             </div>
           )}
 
-          <div className="flex flex-wrap gap-4 animate-slide-up" style={{ animationDelay: '0.9s' }}>
+          <div className="flex flex-wrap gap-4">
             <button
               type="button"
               onClick={handleSmartPipelineWithCache}
               disabled={loading || videoLoading}
-              className="group bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed cursor-pointer text-white font-semibold px-6 py-3 rounded-lg transition-all duration-300 transform hover:scale-105 active:scale-95 hover:shadow-xl hover:shadow-purple-400/30 relative overflow-hidden"
+              className="group bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed text-white font-semibold px-6 py-3 rounded-lg transition-all duration-300 transform hover:scale-105 active:scale-95 hover:shadow-xl hover:shadow-purple-400/30 relative overflow-hidden"
             >
-              <span className="relative z-10 flex items-center gap-2 group-hover:animate-pulse">
+              <span className="relative z-10 flex items-center gap-2">
                 <Zap className="w-4 h-4" />
                 {loading ? "Processing..." : "Smart Pipeline (Auto-Cache)"}
               </span>
@@ -803,7 +797,7 @@ export default function Dashboard() {
               disabled={loading || videoLoading}
               className="group bg-gradient-to-r from-lime-500 to-lime-600 hover:from-lime-600 hover:to-lime-700 disabled:from-gray-600 disabled:to-gray-700 text-black font-semibold px-6 py-3 rounded-lg transition-all duration-300 transform hover:scale-105 active:scale-95 hover:shadow-xl hover:shadow-lime-400/30 relative overflow-hidden"
             >
-              <span className="relative z-10 flex items-center gap-2 group-hover:animate-pulse">
+              <span className="relative z-10 flex items-center gap-2">
                 <Route className="w-4 h-4" />
                 {loading ? "Processing..." : "Step-by-Step Process"}
               </span>
@@ -816,7 +810,7 @@ export default function Dashboard() {
               disabled={loading || videoLoading}
               className="group bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 disabled:from-gray-600 disabled:to-gray-700 text-white font-semibold px-6 py-3 rounded-lg transition-all duration-300 transform hover:scale-105 active:scale-95 hover:shadow-xl hover:shadow-blue-400/30 relative overflow-hidden"
             >
-              <span className="relative z-10 flex items-center gap-2 group-hover:animate-pulse">
+              <span className="relative z-10 flex items-center gap-2">
                 <Navigation className="w-4 h-4" />
                 {loading ? "Processing..." : "Complete Pipeline"}
               </span>
@@ -829,7 +823,7 @@ export default function Dashboard() {
               disabled={loading || videoLoading}
               className="group bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 disabled:from-gray-600 disabled:to-gray-700 text-white font-semibold px-6 py-3 rounded-lg transition-all duration-300 transform hover:scale-105 active:scale-95 hover:shadow-xl hover:shadow-purple-400/30 relative overflow-hidden"
             >
-              <span className="relative z-10 flex items-center gap-2 group-hover:animate-pulse">
+              <span className="relative z-10 flex items-center gap-2">
                 <Video className="w-4 h-4" />
                 {loading ? "Processing..." : "Complete Pipeline + Video"}
               </span>
@@ -844,7 +838,7 @@ export default function Dashboard() {
                   disabled={loading || videoLoading}
                   className="group bg-gradient-to-r from-orange-600 to-red-600 hover:from-orange-700 hover:to-red-700 disabled:from-gray-600 disabled:to-gray-700 text-white font-semibold px-6 py-3 rounded-lg transition-all duration-300 transform hover:scale-105 active:scale-95 hover:shadow-xl hover:shadow-orange-400/30 relative overflow-hidden"
                 >
-                  <span className="relative z-10 flex items-center gap-2 group-hover:animate-pulse">
+                  <span className="relative z-10 flex items-center gap-2">
                     <Camera className="w-4 h-4" />
                     Regenerate Frames Only
                   </span>
@@ -857,7 +851,7 @@ export default function Dashboard() {
                   disabled={loading || videoLoading}
                   className="group bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 disabled:from-gray-600 disabled:to-gray-700 text-white font-semibold px-6 py-3 rounded-lg transition-all duration-300 transform hover:scale-105 active:scale-95 hover:shadow-xl hover:shadow-indigo-400/30 relative overflow-hidden"
                 >
-                  <span className="relative z-10 flex items-center gap-2 group-hover:animate-pulse">
+                  <span className="relative z-10 flex items-center gap-2">
                     <Zap className="w-4 h-4" />
                     Apply Optical Flow
                   </span>
@@ -870,7 +864,7 @@ export default function Dashboard() {
                   disabled={loading || videoLoading || !route.framesData || route.framesData.length < 2}
                   className="group bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-700 hover:to-pink-700 disabled:from-gray-600 disabled:to-gray-700 text-white font-semibold px-6 py-3 rounded-lg transition-all duration-300 transform hover:scale-105 active:scale-95 hover:shadow-xl hover:shadow-red-400/30 relative overflow-hidden"
                 >
-                  <span className="relative z-10 flex items-center gap-2 group-hover:animate-pulse">
+                  <span className="relative z-10 flex items-center gap-2">
                     <Play className="w-4 h-4" />
                     {videoLoading ? "Generating Video..." : "Generate Video"}
                   </span>
@@ -881,54 +875,83 @@ export default function Dashboard() {
           </div>
         </form>
 
-        {/* Route Map Display */}
         {mapImageUrl && (
-          <div className="bg-gray-800/70 backdrop-blur-xl p-8 rounded-2xl shadow-2xl mb-8 border border-gray-700 animate-slide-up hover:shadow-lime-400/10 transition-all duration-500">
+          <div className="bg-gray-800/70 backdrop-blur-xl p-8 rounded-2xl shadow-2xl mb-8 border border-gray-700">
             <h3 className="text-2xl font-semibold text-lime-400 mb-6 flex items-center gap-3">
               <div className="p-2 bg-lime-400/20 rounded-full">
                 <Map className="w-6 h-6" />
               </div>
               Route Overview
+              {distance && (
+                <span className="text-base font-normal text-gray-300 ml-auto flex items-center gap-2 bg-gray-700/50 px-4 py-2 rounded-lg">
+                  <Route className="w-4 h-4 text-lime-400" />
+                  Distance: <span className="text-lime-400 font-semibold">{formatDistance(distance)}</span>
+                </span>
+              )}
             </h3>
-            <div className="relative rounded-xl overflow-hidden shadow-2xl border border-gray-600 group">
+            <div className="relative rounded-xl overflow-hidden shadow-2xl border border-gray-600 group cursor-pointer"
+                 onClick={() => {
+                   const url = getGoogleMapsUrl();
+                   if (url) window.open(url, '_blank');
+                 }}>
               <img
                 src={mapImageUrl}
                 alt="Route map showing path from start to destination"
                 className="w-full h-auto transition-all duration-300 group-hover:scale-105"
                 style={{ maxHeight: '400px', objectFit: 'cover' }}
               />
-              <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"></div>
+              <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
+                <div className="bg-lime-400 text-black px-6 py-3 rounded-full font-semibold flex items-center gap-2 transform scale-90 group-hover:scale-100 transition-transform duration-300 shadow-xl">
+                  <ExternalLink className="w-5 h-5" />
+                  Open in Google Maps
+                </div>
+              </div>
               
-              {/* Route info overlay */}
-              <div className="absolute bottom-4 left-4 right-4 bg-black/70 backdrop-blur-sm rounded-lg p-4">
-                <div className="flex items-center justify-between text-white">
-                  <div className="flex items-center gap-3">
-                    <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
-                      <span className="text-sm font-medium">Start: {startLocation}</span>
+              <div className="absolute bottom-4 left-4 right-4 bg-black/80 backdrop-blur-md rounded-lg p-4 border border-gray-600/50">
+                <div className="flex flex-col gap-3">
+                  <div className="flex items-center justify-between text-white">
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                      <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse flex-shrink-0"></div>
+                      <span className="text-sm font-medium truncate">Start: {startLocation}</span>
                     </div>
                   </div>
-                  <div className="flex items-center gap-3">
-                    <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
-                      <span className="text-sm font-medium">End: {endLocation}</span>
+                  <div className="flex items-center justify-between text-white">
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                      <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse flex-shrink-0"></div>
+                      <span className="text-sm font-medium truncate">End: {endLocation}</span>
                     </div>
                   </div>
                 </div>
                 {startCoords && endCoords && (
-                  <div className="mt-3 text-xs text-gray-300 flex items-center justify-between">
-                    <span>Start: {startCoords.lat.toFixed(6)}, {startCoords.lng.toFixed(6)}</span>
-                    <span>End: {endCoords.lat.toFixed(6)}, {endCoords.lng.toFixed(6)}</span>
+                  <div className="mt-3 pt-3 border-t border-gray-600/50 grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-gray-300">
+                    <div>
+                      <span className="text-green-400 font-medium">Start:</span> {startCoords.lat.toFixed(6)}, {startCoords.lng.toFixed(6)}
+                    </div>
+                    <div>
+                      <span className="text-red-400 font-medium">End:</span> {endCoords.lat.toFixed(6)}, {endCoords.lng.toFixed(6)}
+                    </div>
+                  </div>
+                )}
+                {distance && (
+                  <div className="mt-3 pt-3 border-t border-gray-600/50 flex items-center justify-center">
+                    <div className="bg-lime-400/20 px-4 py-2 rounded-lg">
+                      <span className="text-lime-400 font-semibold text-sm">
+                        Straight-line Distance: {formatDistance(distance)}
+                      </span>
+                    </div>
                   </div>
                 )}
               </div>
             </div>
+            <p className="text-center text-gray-400 text-sm mt-4 flex items-center justify-center gap-2">
+              <ExternalLink className="w-4 h-4" />
+              Click on the map to view full route in Google Maps
+            </p>
           </div>
         )}
 
-        {/* Status Display */}
         {status && (
-          <div className={`p-4 rounded-lg mb-6 border transition-all duration-300 animate-slide-up backdrop-blur-sm ${
+          <div className={`p-4 rounded-lg mb-6 border transition-all duration-300 ${
             status.includes('Error') || status.includes('failed') ? 'bg-red-900/30 border-red-500/30 text-red-300' : 
             status.includes('successful') || status.includes('complete') || status.includes('cached') ? 'bg-green-900/30 border-green-500/30 text-green-300' : 
             'bg-blue-900/30 border-blue-500/30 text-blue-300'
@@ -944,9 +967,8 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* Video Status Display */}
         {videoStatus && (
-          <div className={`p-4 rounded-lg mb-6 border transition-all duration-300 animate-slide-up backdrop-blur-sm ${
+          <div className={`p-4 rounded-lg mb-6 border transition-all duration-300 ${
             videoStatus.includes('Error') || videoStatus.includes('failed') ? 'bg-red-900/30 border-red-500/30 text-red-300' : 
             videoStatus.includes('successful') ? 'bg-green-900/30 border-green-500/30 text-green-300' : 
             'bg-blue-900/30 border-blue-500/30 text-blue-300'
@@ -958,9 +980,8 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* Video Player */}
         {videoInfo && (
-          <div className="bg-gray-800/70 backdrop-blur-xl p-8 rounded-2xl shadow-2xl mb-8 border border-gray-700 animate-slide-up hover:shadow-lime-400/10 transition-all duration-500">
+          <div className="bg-gray-800/70 backdrop-blur-xl p-8 rounded-2xl shadow-2xl mb-8 border border-gray-700">
             <h3 className="text-2xl font-semibold text-lime-400 mb-6 flex items-center gap-3">
               <div className="p-2 bg-lime-400/20 rounded-full">
                 <Video className="w-6 h-6" />
@@ -974,7 +995,6 @@ export default function Dashboard() {
                     controls
                     className="w-full transition-all duration-300 group-hover:scale-105"
                     style={{ maxHeight: '500px' }}
-                    poster=""
                   >
                     <source src={videoInfo.video_url} type="video/mp4" />
                     Your browser does not support the video tag.
@@ -983,7 +1003,7 @@ export default function Dashboard() {
                 </div>
               </div>
               <div className="lg:w-80">
-                <div className="bg-gray-700/50 p-6 rounded-xl text-white border border-gray-600 backdrop-blur-sm">
+                <div className="bg-gray-700/50 p-6 rounded-xl text-white border border-gray-600">
                   <h4 className="font-medium mb-4 text-lime-400 flex items-center gap-2">
                     <FileVideo className="w-4 h-4" />
                     Video Details
@@ -1018,7 +1038,7 @@ export default function Dashboard() {
                     <a
                       href={videoInfo.video_url}
                       download={videoInfo.filename}
-                      className="group inline-flex items-center gap-2 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white px-4 py-2 rounded-lg text-sm transition-all duration-300 transform hover:scale-105 hover:shadow-lg hover:shadow-blue-400/30"
+                      className="group inline-flex items-center gap-2 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white px-4 py-2 rounded-lg text-sm transition-all duration-300 transform hover:scale-105 hover:shadow-lg"
                     >
                       <Download className="w-4 h-4 group-hover:animate-bounce" />
                       Download Video
@@ -1030,11 +1050,9 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* Route Information */}
         {route && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-            {/* Basic Route Info */}
-            <div className="bg-gray-800/70 backdrop-blur-xl p-6 rounded-2xl shadow-2xl border border-gray-700 animate-slide-up hover:shadow-lime-400/10 transition-all duration-500">
+            <div className="bg-gray-800/70 backdrop-blur-xl p-6 rounded-2xl shadow-2xl border border-gray-700">
               <h3 className="text-xl font-semibold text-lime-400 mb-6 flex items-center gap-3">
                 <div className="p-2 bg-lime-400/20 rounded-full">
                   <Route className="w-5 h-5" />
@@ -1079,16 +1097,15 @@ export default function Dashboard() {
               </div>
             </div>
 
-            {/* Analytics */}
             {analytics && (
-             <div className="bg-gray-800/70 backdrop-blur-xl p-6 rounded-2xl shadow-2xl border border-gray-700 animate-slide-up hover:shadow-lime-400/10 transition-all duration-500">
-              <h3 className="text-xl font-semibold text-lime-400 mb-6 flex items-center gap-3">
-                <div className="p-2 bg-lime-400/20 rounded-full">
-                  <Navigation className="w-5 h-5" />
-                </div>
-                Analytics
-              </h3>
-                 <div className="grid grid-cols-2 gap-6 text-sm animate-fade-in">
+              <div className="bg-gray-800/70 backdrop-blur-xl p-6 rounded-2xl shadow-2xl border border-gray-700">
+                <h3 className="text-xl font-semibold text-lime-400 mb-6 flex items-center gap-3">
+                  <div className="p-2 bg-lime-400/20 rounded-full">
+                    <Navigation className="w-5 h-5" />
+                  </div>
+                  Analytics
+                </h3>
+                <div className="grid grid-cols-2 gap-6 text-sm">
                   <div className="space-y-3">
                     <div className="flex justify-between">
                       <span className="text-gray-300">Original Frames:</span>
@@ -1120,117 +1137,93 @@ export default function Dashboard() {
                 </div>
 
                 {analytics.smoothed_heading_stats && (
-                 <div className="mt-6 pt-4 border-t border-gray-600 animate-fade-in" style={{ animationDelay: '0.2s' }}>
-                  <h4 className="font-medium text-gray-300 mb-3 flex items-center gap-2">
-                    <Zap className="w-4 h-4 text-lime-400" />
-                    Smoothing Effect
-                  </h4>
-                  <div className="space-y-2 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-gray-300">Smoothing Impact:</span>
-                      <span className="text-orange-400 font-semibold">{analytics.smoothed_heading_stats.smoothing_effect?.toFixed(2)}°</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-300">Smoothed Avg:</span>
-                      <span className="text-lime-400 font-semibold">{analytics.smoothed_heading_stats.mean_smoothed_heading?.toFixed(1)}°</span>
+                  <div className="mt-6 pt-4 border-t border-gray-600">
+                    <h4 className="font-medium text-gray-300 mb-3 flex items-center gap-2">
+                      <Zap className="w-4 h-4 text-lime-400" />
+                      Smoothing Effect
+                    </h4>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-gray-300">Smoothing Impact:</span>
+                        <span className="text-orange-400 font-semibold">{analytics.smoothed_heading_stats.smoothing_effect?.toFixed(2)}°</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-300">Smoothed Avg:</span>
+                        <span className="text-lime-400 font-semibold">{analytics.smoothed_heading_stats.mean_smoothed_heading?.toFixed(1)}°</span>
+                      </div>
                     </div>
                   </div>
-                </div>
                 )}
               </div>
             )}
           </div>
         )}
 
-        {/* Processing Statistics */}
-        {/* Processing Statistics */}
-{route && (
-  <div className="bg-gradient-to-r from-gray-800/70 to-gray-700/70 backdrop-blur-xl p-8 rounded-2xl shadow-2xl mb-8 border border-gray-600 animate-slide-up hover:shadow-lime-400/10 transition-all duration-500">
-    <h3 className="text-2xl font-semibold text-lime-400 mb-8 flex items-center gap-3">
-      <div className="p-2 bg-lime-400/20 rounded-full">
-        <Navigation className="w-6 h-6" />
-      </div>
-      Processing Statistics
-    </h3>
-    
-    {route.processingStats ? (
-      <>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
-          <div className="bg-gray-700/50 p-4 rounded-xl border border-gray-600 transform hover:scale-105 transition-all duration-300 animate-fade-in" style={{ animationDelay: '0.1s' }}>
-            <div className="text-3xl font-bold text-blue-400 mb-2 animate-count-up">{route.processingStats.original_frames}</div>
-            <div className="text-sm text-gray-300">Original Frames</div>
-          </div>
-          <div className="bg-gray-700/50 p-4 rounded-xl border border-gray-600 transform hover:scale-105 transition-all duration-300 animate-fade-in" style={{ animationDelay: '0.2s' }}>
-            <div className="text-3xl font-bold text-green-400 mb-2 animate-count-up">{route.processingStats.regenerated_frames}</div>
-            <div className="text-sm text-gray-300">Regenerated</div>
-          </div>
-          <div className="bg-gray-700/50 p-4 rounded-xl border border-gray-600 transform hover:scale-105 transition-all duration-300 animate-fade-in" style={{ animationDelay: '0.3s' }}>
-            <div className="text-3xl font-bold text-purple-400 mb-2 animate-count-up">{route.processingStats.interpolated_frames}</div>
-            <div className="text-sm text-gray-300">Interpolated</div>
-          </div>
-          <div className="bg-gray-700/50 p-4 rounded-xl border border-gray-600 transform hover:scale-105 transition-all duration-300 animate-fade-in" style={{ animationDelay: '0.4s' }}>
-            <div className="text-3xl font-bold text-orange-400 mb-2 animate-count-up">{route.processingStats.total_final_frames}</div>
-            <div className="text-sm text-gray-300">Total Final</div>
-          </div>
-        </div>
-        
-        {route.processingStats.average_consistency && (
-          <div className="mt-8 text-center animate-fade-in" style={{ animationDelay: '0.5s' }}>
-            <div className="text-xl font-medium text-gray-300 mb-4">
-              Motion Consistency: <span className="text-lime-400 font-bold">{(route.processingStats.average_consistency * 100).toFixed(1)}%</span>
-            </div>
-            <div className="w-full bg-gray-700 rounded-full h-4 relative overflow-hidden shadow-inner">
-              <div 
-                className="bg-gradient-to-r from-lime-400 to-lime-500 h-4 rounded-full transition-all duration-1000 ease-out shadow-lg animate-progress-fill"
-                style={{width: `${route.processingStats.average_consistency * 100}%`}}
-              ></div>
-              <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent animate-shimmer"></div>
-            </div>
+        {route && (
+          <div className="bg-gradient-to-r from-gray-800/70 to-gray-700/70 backdrop-blur-xl p-8 rounded-2xl shadow-2xl mb-8 border border-gray-600">
+            <h3 className="text-2xl font-semibold text-lime-400 mb-8 flex items-center gap-3">
+              <div className="p-2 bg-lime-400/20 rounded-full">
+                <Navigation className="w-6 h-6" />
+              </div>
+              Processing Statistics
+            </h3>
+            
+            {route.processingStats ? (
+              <>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
+                  <div className="bg-gray-700/50 p-4 rounded-xl border border-gray-600 transform hover:scale-105 transition-all duration-300">
+                    <div className="text-3xl font-bold text-blue-400 mb-2">{route.processingStats.original_frames}</div>
+                    <div className="text-sm text-gray-300">Original Frames</div>
+                  </div>
+                  <div className="bg-gray-700/50 p-4 rounded-xl border border-gray-600 transform hover:scale-105 transition-all duration-300">
+                    <div className="text-3xl font-bold text-green-400 mb-2">{route.processingStats.regenerated_frames}</div>
+                    <div className="text-sm text-gray-300">Regenerated</div>
+                  </div>
+                  <div className="bg-gray-700/50 p-4 rounded-xl border border-gray-600 transform hover:scale-105 transition-all duration-300">
+                    <div className="text-3xl font-bold text-purple-400 mb-2">{route.processingStats.interpolated_frames}</div>
+                    <div className="text-sm text-gray-300">Interpolated</div>
+                  </div>
+                  <div className="bg-gray-700/50 p-4 rounded-xl border border-gray-600 transform hover:scale-105 transition-all duration-300">
+                    <div className="text-3xl font-bold text-orange-400 mb-2">{route.processingStats.total_final_frames}</div>
+                    <div className="text-sm text-gray-300">Total Final</div>
+                  </div>
+                </div>
+                
+                {route.processingStats.average_consistency && (
+                  <div className="mt-8 text-center">
+                    <div className="text-xl font-medium text-gray-300 mb-4">
+                      Motion Consistency: <span className="text-lime-400 font-bold">{(route.processingStats.average_consistency * 100).toFixed(1)}%</span>
+                    </div>
+                    <div className="w-full bg-gray-700 rounded-full h-4 relative overflow-hidden shadow-inner">
+                      <div 
+                        className="bg-gradient-to-r from-lime-400 to-lime-500 h-4 rounded-full transition-all duration-1000 ease-out shadow-lg"
+                        style={{width: `${route.processingStats.average_consistency * 100}%`}}
+                      ></div>
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-12 space-y-4">
+                <div className="relative">
+                  <div className="w-16 h-16 border-4 border-lime-400/30 border-t-lime-400 rounded-full animate-spin"></div>
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <Navigation className="w-6 h-6 text-lime-400 animate-pulse" />
+                  </div>
+                </div>
+                <p className="text-gray-400 animate-pulse">Loading processing statistics...</p>
+              </div>
+            )}
           </div>
         )}
-      </>
-    ) : (
-        <div className="flex flex-col items-center justify-center py-12 space-y-4">
-          <div className="relative">
-            <div className="w-16 h-16 border-4 border-lime-400/30 border-t-lime-400 rounded-full animate-spin"></div>
-            <div className="absolute inset-0 flex items-center justify-center">
-              <Navigation className="w-6 h-6 text-lime-400 animate-pulse" />
-            </div>
-          </div>
-          <p className="text-gray-400 animate-pulse">Loading processing statistics...</p>
-        </div>
-      )}
-    </div>
-  )}
       </main>
 
-      <style jsx>{`
+      <style>{`
         @keyframes fade-in {
           from { opacity: 0; transform: translateY(20px); }
           to { opacity: 1; transform: translateY(0); }
         }
         
-        @keyframes slide-up {
-          from { opacity: 0; transform: translateY(30px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        
-        @keyframes slide-down {
-          from { opacity: 0; transform: translateY(-30px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        
-        @keyframes shimmer {
-          0% { transform: translateX(-100%); }
-          100% { transform: translateX(100%); }
-        }
-        
-        .animate-fade-in { animation: fade-in 0.8s ease-out; }
-        .animate-slide-up { animation: slide-up 0.8s ease-out; }
-        .animate-slide-down { animation: slide-down 0.8s ease-out; }
-        .animate-shimmer { animation: shimmer 2s infinite; }
-        
-        /* Custom scrollbar for dark theme */
         ::-webkit-scrollbar {
           width: 8px;
         }
