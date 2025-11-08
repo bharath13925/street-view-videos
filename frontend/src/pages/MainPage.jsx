@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { MapPin, Shield, Globe, Navigation,  Brain, Film,Waves,Activity,Laptop, Camera, Map } from "lucide-react";
+import { MapPin, Shield, Globe, Navigation, Brain, Film, Waves, Activity, Laptop, Camera, Map } from "lucide-react";
+import { auth } from "../firebase";
+import { signInWithPopup, GoogleAuthProvider } from "firebase/auth";
 
 import streetview from "../assets/streetview.jpeg";
 import routeplanning from "../assets/routeplanning.jpeg";
@@ -13,14 +15,16 @@ import FAQ from "./Faq";
 const MainPage = () => {
   const navigate = useNavigate();
   const [currentImage, setCurrentImage] = useState(0);
+  const [isAuthenticating, setIsAuthenticating] = useState(false);
 
-  // Carousel images - using your original images
+  // Carousel images
   const images = [
-      routeplanning,
-      streetview,
-      "https://images.unsplash.com/photo-1469474968028-56623f02e42e?w=800&h=450&fit=crop",
-      "https://images.unsplash.com/photo-1524492412937-b28074a5d7da?w=800&h=450&fit=crop"
-    ];
+    routeplanning,
+    streetview,
+    "https://images.unsplash.com/photo-1469474968028-56623f02e42e?w=800&h=450&fit=crop",
+    "https://images.unsplash.com/photo-1524492412937-b28074a5d7da?w=800&h=450&fit=crop"
+  ];
+
   // Auto-slide every 4s
   useEffect(() => {
     const interval = setInterval(() => {
@@ -31,10 +35,29 @@ const MainPage = () => {
     return () => clearInterval(interval);
   }, [images.length]);
 
-  
   useEffect(() => {
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }, []);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
+
+  const handleGoogleSignIn = async () => {
+    setIsAuthenticating(true);
+    try {
+      const provider = new GoogleAuthProvider();
+      const result = await signInWithPopup(auth, provider);
+      
+      // Get the user info
+      const user = result.user;
+      console.log("Google Sign-In successful:", user);
+      
+      // Navigate to user dashboard
+      navigate("/user-dashboard");
+    } catch (error) {
+      console.error("Google Sign-In error:", error);
+      alert(`Google Sign-In failed: ${error.message}`);
+    } finally {
+      setIsAuthenticating(false);
+    }
+  };
 
   const handleLogin = () => {
     navigate("/login");
@@ -44,7 +67,6 @@ const MainPage = () => {
     navigate("/user-signup");
   };
 
-  // it is for smooth features in frontend page like goto features and faq's like that....
   const scrollToSection = (sectionId) => {
     const element = document.getElementById(sectionId);
     if (element) {
@@ -53,57 +75,57 @@ const MainPage = () => {
   };
 
   const features = [
-  {
-    icon: <Map className="text-5xl text-lime-400 mx-auto mb-4 transition-all duration-300 group-hover:scale-110 group-hover:text-lime-300" />,
-    title: "Smart Route Mapping",
-    description: "Generates optimal routes between start and end points using Google Directions API."
-  },
-  {
-    icon: <Globe className="text-5xl text-lime-400 mx-auto mb-4 transition-all duration-300 group-hover:scale-110 group-hover:text-lime-300" />,
-    title: "Street View Integration",
-    description: "Displays realistic 360° Street View imagery for a real-world route preview."
-  },
-  {
-    icon: <Camera className="text-5xl text-lime-400 mx-auto mb-4 transition-all duration-300 group-hover:scale-110 group-hover:text-lime-300" />,
-    title: "Visual Odometry Refinement",
-    description: "Enhances orientation accuracy using ORB feature detection and affine transformation."
-  },
-  {
-    icon: <Brain className="text-5xl text-lime-400 mx-auto mb-4 transition-all duration-300 group-hover:scale-110 group-hover:text-lime-300" />,
-    title: "LSTM-Based Smoothing",
-    description: "Applies deep learning to remove GPS noise and generate smooth, continuous route motion."
-  },
-  {
-    icon: <Film className="text-5xl text-lime-400 mx-auto mb-4 transition-all duration-300 group-hover:scale-110 group-hover:text-lime-300" />,
-    title: "Video Generation",
-    description: "Creates a seamless and realistic route visualization video using interpolated Street View frames."
-  },
-  {
-    icon: <Waves className="text-5xl text-lime-400 mx-auto mb-4 transition-all duration-300 group-hover:scale-110 group-hover:text-lime-300" />,
-    title: "Optical Flow Interpolation",
-    description: "Generates intermediate frames with Farneback and RAFT algorithms for smoother playback."
-  },
-  {
-    icon: <Activity className="text-5xl text-lime-400 mx-auto mb-4 transition-all duration-300 group-hover:scale-110 group-hover:text-lime-300" />,
-    title: "Performance Metrics",
-    description: "Analyzes heading smoothness, frame success rate, and total processing time for route visualization."
-  },
-  {
-    icon: <Navigation className="text-5xl text-lime-400 mx-auto mb-4 transition-all duration-300 group-hover:scale-110 group-hover:text-lime-300" />,
-    title: "Static Map Display",
-    description: "Generates a Google Static Map highlighting start and end points with the complete route overlay."
-  },
-  {
-    icon: <Laptop className="text-5xl text-lime-400 mx-auto mb-4 transition-all duration-300 group-hover:scale-110 group-hover:text-lime-300" />,
-    title: "Interactive Dashboard",
-    description: "Provides a GUI for user input, progress tracking, and viewing of map and video outputs."
-  },
-  {
-    icon: <Shield className="text-5xl text-lime-400 mx-auto mb-4 transition-all duration-300 group-hover:scale-110 group-hover:text-lime-300" />,
-    title: "Fallback Mechanism",
-    description: "Ensures robust performance by reverting to GPS headings when visual odometry fails."
-  }
-];
+    {
+      icon: <Map className="text-5xl text-lime-400 mx-auto mb-4 transition-all duration-300 group-hover:scale-110 group-hover:text-lime-300" />,
+      title: "Smart Route Mapping",
+      description: "Generates optimal routes between start and end points using Google Directions API."
+    },
+    {
+      icon: <Globe className="text-5xl text-lime-400 mx-auto mb-4 transition-all duration-300 group-hover:scale-110 group-hover:text-lime-300" />,
+      title: "Street View Integration",
+      description: "Displays realistic 360° Street View imagery for a real-world route preview."
+    },
+    {
+      icon: <Camera className="text-5xl text-lime-400 mx-auto mb-4 transition-all duration-300 group-hover:scale-110 group-hover:text-lime-300" />,
+      title: "Visual Odometry Refinement",
+      description: "Enhances orientation accuracy using ORB feature detection and affine transformation."
+    },
+    {
+      icon: <Brain className="text-5xl text-lime-400 mx-auto mb-4 transition-all duration-300 group-hover:scale-110 group-hover:text-lime-300" />,
+      title: "LSTM-Based Smoothing",
+      description: "Applies deep learning to remove GPS noise and generate smooth, continuous route motion."
+    },
+    {
+      icon: <Film className="text-5xl text-lime-400 mx-auto mb-4 transition-all duration-300 group-hover:scale-110 group-hover:text-lime-300" />,
+      title: "Video Generation",
+      description: "Creates a seamless and realistic route visualization video using interpolated Street View frames."
+    },
+    {
+      icon: <Waves className="text-5xl text-lime-400 mx-auto mb-4 transition-all duration-300 group-hover:scale-110 group-hover:text-lime-300" />,
+      title: "Optical Flow Interpolation",
+      description: "Generates intermediate frames with Farneback and RAFT algorithms for smoother playback."
+    },
+    {
+      icon: <Activity className="text-5xl text-lime-400 mx-auto mb-4 transition-all duration-300 group-hover:scale-110 group-hover:text-lime-300" />,
+      title: "Performance Metrics",
+      description: "Analyzes heading smoothness, frame success rate, and total processing time for route visualization."
+    },
+    {
+      icon: <Navigation className="text-5xl text-lime-400 mx-auto mb-4 transition-all duration-300 group-hover:scale-110 group-hover:text-lime-300" />,
+      title: "Static Map Display",
+      description: "Generates a Google Static Map highlighting start and end points with the complete route overlay."
+    },
+    {
+      icon: <Laptop className="text-5xl text-lime-400 mx-auto mb-4 transition-all duration-300 group-hover:scale-110 group-hover:text-lime-300" />,
+      title: "Interactive Dashboard",
+      description: "Provides a GUI for user input, progress tracking, and viewing of map and video outputs."
+    },
+    {
+      icon: <Shield className="text-5xl text-lime-400 mx-auto mb-4 transition-all duration-300 group-hover:scale-110 group-hover:text-lime-300" />,
+      title: "Fallback Mechanism",
+      description: "Ensures robust performance by reverting to GPS headings when visual odometry fails."
+    }
+  ];
 
   return (
     <div className="min-h-screen bg-black overflow-x-hidden">
@@ -117,7 +139,6 @@ const MainPage = () => {
               backgroundImage: `url(${MapsBackgroundImage})`,
             }}
           ></div>
-          {/* Subtle overlay for contrast */}
           <div className="absolute inset-0 bg-gradient-to-r from-black/60 via-transparent to-black/60"></div>
         </div>
         
@@ -178,11 +199,9 @@ const MainPage = () => {
                 </div>
               ))}
               
-              {/* Animated shimmer overlay */}
               <div className="absolute inset-0 bg-gradient-to-r from-transparent via-lime-400/10 to-transparent -translate-x-full animate-shimmer"></div>
             </div>
 
-            {/* Enhanced Indicators */}
             <div className="flex justify-center mt-6 space-x-2">
               {images.map((_, index) => (
                 <button
@@ -198,7 +217,7 @@ const MainPage = () => {
         </div>
       </section>
 
-      {/* Login/Signup Section */}
+      {/* Login/Signup Section with Google Sign-In */}
       <section className="py-16 bg-gradient-to-r from-gray-900 to-black">
         <div className="container mx-auto px-4 text-center">
           <h2 className="text-4xl font-bold mb-8 text-white animate-fade-in">Join RouteVision</h2>
@@ -215,14 +234,42 @@ const MainPage = () => {
             <div className="space-y-4">
               <button
                 onClick={handleSignup}
-                className="group w-full bg-gradient-to-r from-lime-400 to-lime-500 text-black py-3 rounded-lg font-semibold transition-all duration-300 transform hover:scale-105 hover:shadow-lg hover:shadow-lime-400/30 cursor-pointer"
+                disabled={isAuthenticating}
+                className="group w-full bg-gradient-to-r from-lime-400 to-lime-500 text-black py-3 rounded-lg font-semibold transition-all duration-300 transform hover:scale-105 hover:shadow-lg hover:shadow-lime-400/30 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <span className="group-hover:animate-pulse">Sign Up Now</span>
               </button>
-              <p className="text-gray-400 animate-fade-in">Already have an account?</p>
+              
+              {/* Divider */}
+              <div className="relative my-4">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-gray-600"></div>
+                </div>
+                <div className="relative flex justify-center text-sm">
+                  <span className="px-2 bg-gray-800 text-gray-400">Or</span>
+                </div>
+              </div>
+              
+              {/* Google Sign In Button */}
+              <button
+                onClick={handleGoogleSignIn}
+                disabled={isAuthenticating}
+                className="w-full bg-white text-gray-800 py-3 rounded-lg font-semibold hover:bg-gray-100 transition-all duration-300 transform hover:scale-105 hover:shadow-xl flex items-center justify-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <svg className="w-5 h-5" viewBox="0 0 24 24">
+                  <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                  <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                  <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+                  <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+                </svg>
+                <span>{isAuthenticating ? "Signing in..." : "Continue with Google"}</span>
+              </button>
+              
+              <p className="text-gray-400 animate-fade-in mt-6">Already have an account?</p>
               <button
                 onClick={handleLogin}
-                className="group w-full border-2 border-lime-400 text-lime-400 py-3 rounded-lg font-semibold hover:bg-lime-400 hover:text-black transition-all duration-300 transform hover:scale-105 cursor-pointer"
+                disabled={isAuthenticating}
+                className="group w-full border-2 border-lime-400 text-lime-400 py-3 rounded-lg font-semibold hover:bg-lime-400 hover:text-black transition-all duration-300 transform hover:scale-105 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <span className="group-hover:animate-pulse">Log In</span>
               </button>
@@ -254,7 +301,6 @@ const MainPage = () => {
                   {feature.description}
                 </p>
                 
-                {/* Animated border glow effect */}
                 <div className="absolute inset-0 rounded-2xl bg-gradient-to-r from-lime-400 to-lime-500 opacity-0 group-hover:opacity-10 transition-opacity duration-300 -z-10 blur-sm"></div>
               </div>
             ))}
@@ -403,7 +449,6 @@ const MainPage = () => {
           }
         }
 
-        /* Custom scrollbar for dark theme */
         ::-webkit-scrollbar {
           width: 8px;
         }
