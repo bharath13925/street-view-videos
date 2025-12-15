@@ -22,9 +22,9 @@ GOOGLE_MAPS_API_KEY = os.getenv("PYTHON_API_KEY")
 FRAMES_DIR = Path("frames")
 FRAMES_DIR.mkdir(exist_ok=True)
 
-# Alert configuration
-TURN_ALERT_DISTANCE = 120  # meters
-LANDMARK_ALERT_DISTANCE = 200  # meters
+# Alert configuration - INCREASED distances for earlier warnings
+TURN_ALERT_DISTANCE = 120  # meters (was 50m)
+LANDMARK_ALERT_DISTANCE = 200  # meters (was 100m)
 LANDMARK_SEARCH_RADIUS = 250  # meters
 
 # VIDEO SPEED CONFIGURATION
@@ -56,9 +56,9 @@ from optical_flow_interpolation import OpticalFlowInterpolator, create_interpola
 # ------------------------
 # FastAPI setup
 # ------------------------
-app = FastAPI(title="Street View Navigation - Fixed Caching")
+app = FastAPI(title="Street View Navigation - Fixed Alerts & Caching")
 
-origins = ["https://street-view-videos.vercel.app", "http://localhost:3000"]
+origins = ["https://street-view-videos.vercel.app", "http://localhost:3000", "http://localhost:5173"]
 
 app.add_middleware(
     CORSMiddleware,
@@ -220,10 +220,26 @@ def fetch_street_view_image(lat, lon, heading, filename):
         return False
 
 # ------------------------
+# ✅ NEW: Helper to find closest point index
+# ------------------------
+def find_closest_point_index(lat, lon, points_with_headings):
+    """Maps a lat/lon to the nearest frame index in the route"""
+    min_dist = float('inf')
+    best_idx = 0
+
+    for i, p in enumerate(points_with_headings):
+        d = haversine(lat, lon, p['lat'], p['lon'])
+        if d < min_dist:
+            min_dist = d
+            best_idx = i
+
+    return best_idx
+
+# ------------------------
 # VISUAL OVERLAY FUNCTIONS
 # ------------------------
 def draw_turn_arrow(image_path: str, turn_direction: str, distance: int) -> bool:
-    """Draw turn arrow at TOP of image"""
+    """Draw turn arrow at TOP of image - ASCII TEXT ONLY"""
     try:
         img = Image.open(image_path)
         draw = ImageDraw.Draw(img)
@@ -247,6 +263,7 @@ def draw_turn_arrow(image_path: str, turn_direction: str, distance: int) -> bool
         img = Image.alpha_composite(img.convert('RGBA'), overlay).convert('RGB')
         draw = ImageDraw.Draw(img)
         
+        # ✅ ASCII arrows only (no emoji)
         arrow_map = {
             'turn-left': '<--',
             'turn-right': '-->',
@@ -282,7 +299,7 @@ def draw_turn_arrow(image_path: str, turn_direction: str, distance: int) -> bool
         return False
 
 def draw_landmark_pin(image_path: str, landmark_name: str, distance: int, category: str) -> bool:
-    """Draw landmark info at BOTTOM of image"""
+    """Draw landmark info at BOTTOM of image - TEXT ONLY (no emoji)"""
     try:
         img = Image.open(image_path)
         draw = ImageDraw.Draw(img)
@@ -307,32 +324,34 @@ def draw_landmark_pin(image_path: str, landmark_name: str, distance: int, catego
         img = Image.alpha_composite(img.convert('RGBA'), overlay).convert('RGB')
         draw = ImageDraw.Draw(img)
         
+        # ✅ TEXT-ONLY categories (no emoji in overlay)
         category_text_map = {
-            '🏫 School': 'SCHOOL',
-            '🎓 University': 'UNIVERSITY',
-            '🎓 College': 'COLLEGE',
-            '🚌 Bus Station': 'BUS STATION',
-            '🚉 Transit Station': 'TRANSIT',
-            '🚆 Railway Station': 'TRAIN',
-            '🚇 Metro Station': 'METRO',
-            '🛍️ Shopping Mall': 'MALL',
-            '🏬 Shopping Center': 'SHOPPING',
-            '🏥 Hospital': 'HOSPITAL',
-            '👮 Police Station': 'POLICE',
-            '🚒 Fire Station': 'FIRE DEPT',
-            '✈️ Airport': 'AIRPORT',
-            '🌳 Park': 'PARK',
-            '🏟️ Stadium': 'STADIUM',
-            '🏛️ Museum': 'MUSEUM',
-            '🍽️ Restaurant': 'RESTAURANT',
-            '☕ Cafe': 'CAFE',
-            '🏦 Bank': 'BANK',
-            '💳 ATM': 'ATM',
-            '⛽ Gas Station': 'GAS',
-            '🅿️ Parking': 'PARKING'
+            'SCHOOL': 'SCHOOL',
+            'UNIVERSITY': 'UNIVERSITY',
+            'COLLEGE': 'COLLEGE',
+            'BUS_STATION': 'BUS STATION',
+            'TRANSIT_STATION': 'TRANSIT',
+            'TRAIN_STATION': 'TRAIN',
+            'SUBWAY_STATION': 'METRO',
+            'SHOPPING_MALL': 'MALL',
+            'DEPARTMENT_STORE': 'SHOPPING',
+            'HOSPITAL': 'HOSPITAL',
+            'POLICE': 'POLICE',
+            'FIRE_STATION': 'FIRE DEPT',
+            'AIRPORT': 'AIRPORT',
+            'PARK': 'PARK',
+            'STADIUM': 'STADIUM',
+            'MUSEUM': 'MUSEUM',
+            'RESTAURANT': 'RESTAURANT',
+            'CAFE': 'CAFE',
+            'BANK': 'BANK',
+            'ATM': 'ATM',
+            'GAS_STATION': 'GAS',
+            'PARKING': 'PARKING'
         }
         
-        category_label = category_text_map.get(category, 'LOCATION')
+        # Extract text-only label from category
+        category_label = category_text_map.get(category.upper().replace(' ', '_'), category)
         draw.text((20, box_y + 10), category_label, fill=(100, 200, 255), font=font_large)
         
         max_chars = 30
@@ -368,7 +387,7 @@ def add_visual_overlay_to_frame(frame_path: str, alert_data: dict) -> bool:
             if ':' in landmark_name:
                 landmark_name = landmark_name.split(':', 1)[1].strip()
             distance = int(alert_data.get('alertDistance', 0))
-            category = alert_data.get('category', '📍 Location')
+            category = alert_data.get('category', 'LOCATION')
             return draw_landmark_pin(frame_path, landmark_name, distance, category)
         
         return False
@@ -483,36 +502,37 @@ def is_important_landmark(place_types):
     return False
 
 def get_landmark_category(place_types):
+    """✅ Returns TEXT-ONLY categories (no emoji)"""
     category_map = {
-        'school': '🏫 School',
-        'university': '🎓 University',
-        'college': '🎓 College',
-        'bus_station': '🚌 Bus Station',
-        'transit_station': '🚉 Transit Station',
-        'train_station': '🚆 Railway Station',
-        'subway_station': '🚇 Metro Station',
-        'shopping_mall': '🛍️ Shopping Mall',
-        'department_store': '🏬 Shopping Center',
-        'hospital': '🏥 Hospital',
-        'police': '👮 Police Station',
-        'fire_station': '🚒 Fire Station',
-        'airport': '✈️ Airport',
-        'park': '🌳 Park',
-        'stadium': '🏟️ Stadium',
-        'museum': '🏛️ Museum',
-        'restaurant': '🍽️ Restaurant',
-        'cafe': '☕ Cafe',
-        'bank': '🏦 Bank',
-        'atm': '💳 ATM',
-        'gas_station': '⛽ Gas Station',
-        'parking': '🅿️ Parking'
+        'school': 'SCHOOL',
+        'university': 'UNIVERSITY',
+        'college': 'COLLEGE',
+        'bus_station': 'BUS_STATION',
+        'transit_station': 'TRANSIT_STATION',
+        'train_station': 'TRAIN_STATION',
+        'subway_station': 'SUBWAY_STATION',
+        'shopping_mall': 'SHOPPING_MALL',
+        'department_store': 'DEPARTMENT_STORE',
+        'hospital': 'HOSPITAL',
+        'police': 'POLICE',
+        'fire_station': 'FIRE_STATION',
+        'airport': 'AIRPORT',
+        'park': 'PARK',
+        'stadium': 'STADIUM',
+        'museum': 'MUSEUM',
+        'restaurant': 'RESTAURANT',
+        'cafe': 'CAFE',
+        'bank': 'BANK',
+        'atm': 'ATM',
+        'gas_station': 'GAS_STATION',
+        'parking': 'PARKING'
     }
     
     for place_type in place_types:
         if place_type in category_map:
             return category_map[place_type]
     
-    return '📍 Point of Interest'
+    return 'LOCATION'
 
 def get_nearby_landmarks(lat, lon, radius=LANDMARK_SEARCH_RADIUS):
     try:
@@ -555,13 +575,18 @@ def get_nearby_landmarks(lat, lon, radius=LANDMARK_SEARCH_RADIUS):
     return []
 
 def generate_frame_alerts(lat, lon, turns, previous_alerts=None, frame_index=0):
-    """Generate alert METADATA ONLY"""
+    """✅ FIXED: Generate alert METADATA ONLY - skips passed turns"""
     alerts = []
     
     if previous_alerts is None:
         previous_alerts = set()
     
+    # ✅ CRITICAL FIX: Only alert for turns AHEAD of current frame
     for turn in turns:
+        # Skip turns that have already been passed
+        if 'turn_index' in turn and frame_index >= turn['turn_index']:
+            continue
+        
         turn_lat = turn['start_location']['lat']
         turn_lon = turn['start_location']['lng']
         distance = haversine(lat, lon, turn_lat, turn_lon)
@@ -825,7 +850,7 @@ def check_existing_route(request: CacheCheckRequest):
             },
             "processing_stats": {
                 "total_final_frames": len(frames_data),
-                "total_turns": 0,  # Will be calculated from frames
+                "total_turns": sum(1 for f in frames_data if f.get('alertType') == 'turn'),
                 "total_alerts": sum(1 for f in frames_data if f.get('alert'))
             }
         }
@@ -855,7 +880,7 @@ def check_video_exists(route_id: str, filename: str):
 # ------------------------
 @app.post("/generate_frames")
 def generate_frames(route: RouteRequest):
-    """✅ Generate frames with alert metadata ONLY"""
+    """✅ Generate frames with alert metadata ONLY (no overlays yet)"""
     route_id = f"{safe_name(route.start)}_{safe_name(route.end)}"
 
     print(f"🚀 Generating frames - METADATA ONLY (no overlays yet)")
@@ -877,8 +902,7 @@ def generate_frames(route: RouteRequest):
     route_dir = FRAMES_DIR / route_id
     route_dir.mkdir(parents=True, exist_ok=True)
 
-    google_turns = get_turn_instructions(directions_data) if route.enable_alerts else []
-    
+    # ✅ NEW: Build points_with_headings FIRST (for turn_index mapping)
     points_with_headings = []
     for idx in range(len(points)-1):
         lat, lon = points[idx]
@@ -891,7 +915,39 @@ def generate_frames(route: RouteRequest):
             'idx': idx
         })
     
+    # ✅ CHANGE A: Extract Google turns WITH turn_index
+    google_turns = []
+    if route.enable_alerts:
+        for leg in directions_data['routes'][0]['legs']:
+            for step in leg['steps']:
+                if 'maneuver' in step:
+                    # ✅ Map turn to closest route frame
+                    idx = find_closest_point_index(
+                        step['start_location']['lat'],
+                        step['start_location']['lng'],
+                        points_with_headings
+                    )
+
+                    google_turns.append({
+                        'maneuver': step['maneuver'],
+                        'instruction': step.get('html_instructions', ''),
+                        'start_location': step['start_location'],
+                        'end_location': step['end_location'],
+                        'distance': step['distance']['value'],
+                        'duration': step['duration']['value'],
+                        'turn_index': idx,  # ✅ NEW: Route position
+                        'source': 'google'
+                    })
+    
     detected_turns = detect_all_turns_from_path(points_with_headings) if route.enable_alerts else []
+    
+    # Add turn_index to detected turns
+    for turn in detected_turns:
+        turn_lat = turn['start_location']['lat']
+        turn_lon = turn['start_location']['lng']
+        idx = find_closest_point_index(turn_lat, turn_lon, points_with_headings)
+        turn['turn_index'] = idx
+    
     all_turns = merge_turns(google_turns, detected_turns) if route.enable_alerts else []
     
     print(f"📍 Google: {len(google_turns)} turns, Detected: {len(detected_turns)} turns, Total: {len(all_turns)} turns")
@@ -910,8 +966,9 @@ def generate_frames(route: RouteRequest):
         
         alert_data = None
         if route.enable_alerts:
+            # ✅ CHANGE B: Pass frame_index to skip passed turns
             frame_alerts, previous_alerts = generate_frame_alerts(
-                lat, lon, all_turns, previous_alerts, idx
+                lat, lon, all_turns, previous_alerts, frame_index=idx
             )
             
             if frame_alerts:
@@ -1047,7 +1104,7 @@ def interpolate_frames(req: InterpolateReq):
             req.interpolation_factor
         )
         
-        # ✅ APPLY OVERLAYS TO ALL FINAL FRAMES
+        # ✅ APPLY OVERLAYS TO ALL FINAL FRAMES (not just interpolated)
         overlays_applied = 0
         print(f"🎨 Starting overlay application on {len(combined_frames_data)} final frames...")
         
