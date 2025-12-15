@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { getAuth, onAuthStateChanged } from "firebase/auth";
-import { MapPin, Route, Video, Play, Download, Clock, FileVideo, Camera, Navigation, Zap, Map, ExternalLink } from "lucide-react";
+import { MapPin, Route, Video, Play, Download, Clock, FileVideo, Camera, Navigation, Zap, Map, ExternalLink, AlertTriangle, Bell, TrendingUp, Navigation2, School, Train, Building2, Hospital } from "lucide-react";
 
 export default function Dashboard() {
   const [user, setUser] = useState(null);
@@ -27,6 +27,11 @@ export default function Dashboard() {
     includeInterpolated: true
   });
 
+  // Enhanced navigation alerts states
+  const [enableAlerts, setEnableAlerts] = useState(true);
+  const [navigationAlerts, setNavigationAlerts] = useState(null);
+  const [loadingAlerts, setLoadingAlerts] = useState(false);
+
   const startRef = useRef(null);
   const endRef = useRef(null);
   const backendUrl = import.meta.env.VITE_BACKEND_URL;
@@ -34,7 +39,7 @@ export default function Dashboard() {
 
   // Calculate distance between two coordinates using Haversine formula
   const calculateDistance = (lat1, lon1, lat2, lon2) => {
-    const R = 6371; // Earth's radius in kilometers
+    const R = 6371;
     const dLat = (lat2 - lat1) * Math.PI / 180;
     const dLon = (lon2 - lon1) * Math.PI / 180;
     const a = 
@@ -60,8 +65,77 @@ export default function Dashboard() {
     return `https://www.google.com/maps/dir/?api=1&origin=${startCoords.lat},${startCoords.lng}&destination=${endCoords.lat},${endCoords.lng}&travelmode=driving`;
   };
 
+  // Enhanced icon mapping for alerts
+  const getAlertIcon = (iconName) => {
+    const iconMap = {
+      'arrow-left': '⬅️',
+      'arrow-right': '➡️',
+      'turn-left': '⬅️',
+      'turn-right': '➡️',
+      'turn-slight-left': '↖️',
+      'turn-slight-right': '↗️',
+      'turn-sharp-left': '↙️',
+      'turn-sharp-right': '↘️',
+      'navigation': '🧭',
+      'map-pin': '📍',
+      'detected-left': '⬅️',
+      'detected-right': '➡️'
+    };
+    return iconMap[iconName] || '⚠️';
+  };
+
+  // Get category icon for landmarks
+  const getCategoryIcon = (category) => {
+    if (!category) return <MapPin className="w-4 h-4" />;
+    
+    const categoryLower = category.toLowerCase();
+    
+    if (categoryLower.includes('school') || categoryLower.includes('college') || categoryLower.includes('university')) {
+      return <School className="w-4 h-4" />;
+    }
+    if (categoryLower.includes('bus') || categoryLower.includes('train') || categoryLower.includes('station') || categoryLower.includes('transit') || categoryLower.includes('metro')) {
+      return <Train className="w-4 h-4" />;
+    }
+    if (categoryLower.includes('mall') || categoryLower.includes('shopping')) {
+      return <Building2 className="w-4 h-4" />;
+    }
+    if (categoryLower.includes('hospital')) {
+      return <Hospital className="w-4 h-4" />;
+    }
+    return <MapPin className="w-4 h-4" />;
+  };
+
+  // Get display emoji for category
+  const getCategoryEmoji = (category) => {
+    if (!category) return '📍';
+    
+    const categoryLower = category.toLowerCase();
+    
+    if (categoryLower.includes('school')) return '🏫';
+    if (categoryLower.includes('university') || categoryLower.includes('college')) return '🎓';
+    if (categoryLower.includes('bus')) return '🚌';
+    if (categoryLower.includes('train') || categoryLower.includes('railway')) return '🚆';
+    if (categoryLower.includes('metro') || categoryLower.includes('subway')) return '🚇';
+    if (categoryLower.includes('transit')) return '🚉';
+    if (categoryLower.includes('mall') || categoryLower.includes('shopping')) return '🛍️';
+    if (categoryLower.includes('hospital')) return '🏥';
+    if (categoryLower.includes('police')) return '👮';
+    if (categoryLower.includes('fire')) return '🚒';
+    if (categoryLower.includes('airport')) return '✈️';
+    if (categoryLower.includes('park')) return '🌳';
+    if (categoryLower.includes('stadium')) return '🏟️';
+    if (categoryLower.includes('museum')) return '🏛️';
+    if (categoryLower.includes('restaurant')) return '🍽️';
+    if (categoryLower.includes('cafe')) return '☕';
+    if (categoryLower.includes('bank')) return '🏦';
+    if (categoryLower.includes('atm')) return '💳';
+    if (categoryLower.includes('gas')) return '⛽';
+    if (categoryLower.includes('parking')) return '🅿️';
+    
+    return '📍';
+  };
+
   useEffect(() => {
-    // Fetch logged-in Firebase user
     const auth = getAuth();
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
       if (firebaseUser) {
@@ -121,11 +195,9 @@ export default function Dashboard() {
     return () => unsubscribe();
   }, [backendUrl]);
 
-  // Generate static map when coordinates are available
   useEffect(() => {
     if (startCoords && endCoords) {
       generateStaticMap();
-      // Calculate distance
       const dist = calculateDistance(
         startCoords.lat,
         startCoords.lng,
@@ -144,11 +216,9 @@ export default function Dashboard() {
 
     const API_KEY = import.meta.env.VITE_PLACES_API_KEY;
     
-    // Calculate center point
     const centerLat = (startCoords.lat + endCoords.lat) / 2;
     const centerLng = (startCoords.lng + endCoords.lng) / 2;
     
-    // Calculate zoom level based on distance
     const latDiff = Math.abs(startCoords.lat - endCoords.lat);
     const lngDiff = Math.abs(startCoords.lng - endCoords.lng);
     const maxDiff = Math.max(latDiff, lngDiff);
@@ -173,7 +243,6 @@ export default function Dashboard() {
     setMapImageUrl(staticMapUrl);
   };
 
-  // Check for cached route when locations change
   useEffect(() => {
     if (startLocation && endLocation && startLocation.trim() !== "" && endLocation.trim() !== "") {
       checkForCachedRoute();
@@ -182,20 +251,30 @@ export default function Dashboard() {
     }
   }, [startLocation, endLocation, interpolationFactor, videoSettings.fps, videoSettings.quality]);
 
-  // Fetch analytics when route changes
   useEffect(() => {
     if (route && route._id) {
       fetchAnalytics(route._id);
+      fetchNavigationAlerts(route._id);
+      
       // Check if route has video info
-      if (route.videoGenerated && route.videoFilename) {
-        setVideoInfo({
+      if (route.videoGenerated && route.videoFilename && route.pythonRouteId) {
+        const cachedVideoInfo = {
           filename: route.videoFilename,
           video_url: `${pythonUrl}/videos/${route.pythonRouteId}/${route.videoFilename}`,
-          ...route.videoStats
-        });
+          source_type: route.videoStats?.source_type || 'interpolated',
+          duration_seconds: route.videoStats?.duration_seconds,
+          fps: route.videoStats?.fps || videoSettings.fps,
+          resolution: route.videoStats?.resolution || '640x640',
+          file_size_mb: route.videoStats?.file_size_mb,
+          total_frames: route.videoStats?.total_frames || route.framesData?.length,
+          video_stats: route.videoStats
+        };
+        setVideoInfo(cachedVideoInfo);
+        setVideoStatus(`Using cached video: ${route.videoFilename}`);
+        console.log("Loaded cached video:", cachedVideoInfo);
       }
     }
-  }, [route, pythonUrl]);
+  }, [route, pythonUrl, videoSettings.fps]);
 
   const fetchAnalytics = async (routeId) => {
     try {
@@ -206,6 +285,22 @@ export default function Dashboard() {
       }
     } catch (err) {
       console.error("Error fetching analytics:", err);
+    }
+  };
+
+  const fetchNavigationAlerts = async (routeId) => {
+    setLoadingAlerts(true);
+    try {
+      const response = await fetch(`${backendUrl}/api/routes/${routeId}/navigation-alerts`);
+      const data = await response.json();
+      if (response.ok) {
+        setNavigationAlerts(data);
+        console.log("Navigation alerts loaded:", data);
+      }
+    } catch (err) {
+      console.error("Error fetching navigation alerts:", err);
+    } finally {
+      setLoadingAlerts(false);
     }
   };
 
@@ -227,6 +322,10 @@ export default function Dashboard() {
       if (response.ok) {
         setCacheStatus(data);
         console.log("Cache check result:", data);
+        
+        if (data.cached && data.video_info) {
+          console.log("Cached route with video found:", data.video_info);
+        }
       } else {
         setCacheStatus({ cached: false, error: data.error });
       }
@@ -239,11 +338,29 @@ export default function Dashboard() {
   const handleUseCachedRoute = () => {
     if (cacheStatus && cacheStatus.cached && cacheStatus.route) {
       setRoute(cacheStatus.route);
+      
       if (cacheStatus.video_info) {
         setVideoInfo(cacheStatus.video_info);
-        setVideoStatus(`Using cached video: ${cacheStatus.video_info.filename} (${cacheStatus.video_info.file_size_mb} MB)`);
+        setVideoStatus(`✅ Using cached video: ${cacheStatus.video_info.filename} (${cacheStatus.video_info.file_size_mb} MB)`);
+        console.log("Loaded cached video from cache status:", cacheStatus.video_info);
+      } else if (cacheStatus.route.videoGenerated && cacheStatus.route.videoFilename) {
+        const videoInfoFromRoute = {
+          filename: cacheStatus.route.videoFilename,
+          video_url: `${pythonUrl}/videos/${cacheStatus.route.pythonRouteId}/${cacheStatus.route.videoFilename}`,
+          source_type: cacheStatus.route.videoStats?.source_type || 'interpolated',
+          duration_seconds: cacheStatus.route.videoStats?.duration_seconds,
+          fps: cacheStatus.route.videoStats?.fps || videoSettings.fps,
+          resolution: cacheStatus.route.videoStats?.resolution || '640x640',
+          file_size_mb: cacheStatus.route.videoStats?.file_size_mb,
+          total_frames: cacheStatus.route.videoStats?.total_frames || cacheStatus.route.framesData?.length,
+          video_stats: cacheStatus.route.videoStats
+        };
+        setVideoInfo(videoInfoFromRoute);
+        setVideoStatus(`✅ Using cached video: ${cacheStatus.route.videoFilename}`);
+        console.log("Constructed video info from route:", videoInfoFromRoute);
       }
-      setStatus(`Using cached route with ${cacheStatus.route.framesData?.length || 0} frames`);
+      
+      setStatus(`✅ Using cached route with ${cacheStatus.route.framesData?.length || 0} frames`);
     }
   };
 
@@ -261,7 +378,7 @@ export default function Dashboard() {
     }
 
     setLoading(true);
-    setStatus("Generating route...");
+    setStatus("Generating route with enhanced navigation alerts (120m turns, 200m landmarks)...");
 
     try {
       const genResponse = await fetch(
@@ -273,6 +390,7 @@ export default function Dashboard() {
             userId: user._id || user.uid,
             start: startLocation,
             end: endLocation,
+            enable_alerts: enableAlerts
           })
         }
       );
@@ -284,7 +402,10 @@ export default function Dashboard() {
       
       const generatedRoute = genData.route;
       setRoute(generatedRoute);
-      setStatus("Route generated successfully! Smoothing headings...");
+      
+      const alertCount = generatedRoute.framesData?.filter(f => f.alert)?.length || 0;
+      const landmarkCount = generatedRoute.navigationMetadata?.totalLandmarks || 0;
+      setStatus(`Route generated with ${alertCount} alerts (${landmarkCount} landmarks)! Smoothing headings...`);
 
       const smoothResponse = await fetch(
         `${backendUrl}/api/routes/${generatedRoute._id}/smooth`,
@@ -314,7 +435,7 @@ export default function Dashboard() {
             setRoute(finalRoute);
             
             const regeneratedCount = regenerateData.regenerated_count || 0;
-            setStatus(`Route processed successfully! ${regeneratedCount} frames regenerated. Ready for interpolation.`);
+            setStatus(`Route processed successfully! ${regeneratedCount} frames regenerated with ${alertCount} alerts. Ready for interpolation.`);
           } else {
             setStatus("Route smoothed, but frame regeneration failed.");
           }
@@ -334,18 +455,12 @@ export default function Dashboard() {
   const handleCompletePipeline = async (e) => {
     e.preventDefault();
     
-    if (!user) {
-      console.error("User not logged in");
-      return;
-    }
-
-    if (!startLocation || !endLocation) {
-      console.error("Both start and end locations are required");
+    if (!user || !startLocation || !endLocation) {
       return;
     }
 
     setLoading(true);
-    setStatus("Starting complete pipeline...");
+    setStatus("Starting complete pipeline with enhanced navigation alerts...");
 
     try {
       const response = await fetch(
@@ -358,6 +473,7 @@ export default function Dashboard() {
             start: startLocation,
             end: endLocation,
             interpolation_factor: interpolationFactor,
+            enable_alerts: enableAlerts
           })
         }
       );
@@ -365,8 +481,10 @@ export default function Dashboard() {
       const data = await response.json();
       if (response.ok && data.pipeline_success) {
         setRoute(data.route);
-        const stats = data.statistics;
-        setStatus(`Complete pipeline successful! Generated ${stats.total_final_frames} total frames`);
+        const totalFrames = data.route.framesData?.length || 0;
+        const stats = data.statistics || {};
+        const navStats = data.navigation_stats || {};
+        setStatus(`Complete pipeline successful! Generated ${totalFrames} total frames with ${navStats.total_alerts || 0} navigation alerts (${navStats.total_landmarks || 0} landmarks)`);
       } else {
         setStatus(`Pipeline failed: ${data.error}`);
       }
@@ -382,18 +500,12 @@ export default function Dashboard() {
   const handleCompletePipelineWithVideo = async (e) => {
     e.preventDefault();
     
-    if (!user) {
-      console.error("User not logged in");
-      return;
-    }
-
-    if (!startLocation || !endLocation) {
-      console.error("Both start and end locations are required");
+    if (!user || !startLocation || !endLocation) {
       return;
     }
 
     setLoading(true);
-    setStatus("Starting complete pipeline with video generation...");
+    setStatus("Starting complete pipeline with video generation and enhanced navigation alerts...");
 
     try {
       const response = await fetch(
@@ -409,6 +521,7 @@ export default function Dashboard() {
             generate_video: true,
             video_fps: videoSettings.fps,
             video_quality: videoSettings.quality,
+            enable_alerts: enableAlerts
           })
         }
       );
@@ -416,13 +529,16 @@ export default function Dashboard() {
       const data = await response.json();
       if (response.ok && data.pipeline_success) {
         setRoute(data.route);
-        const stats = data.statistics;
+        const totalFrames = data.route.framesData?.length || 0;
+        const stats = data.statistics || {};
+        const navStats = data.navigation_stats || {};
         
         if (data.video_info) {
           setVideoInfo(data.video_info);
-          setStatus(`Complete pipeline with video successful! Generated ${stats.total_final_frames} frames and video`);
+          setVideoStatus(`✅ Video generated: ${data.video_info.filename}`);
+          setStatus(`Complete pipeline with video successful! Generated ${totalFrames} frames, ${navStats.total_alerts || 0} alerts (${navStats.total_landmarks || 0} landmarks), and video`);
         } else {
-          setStatus(`Complete pipeline successful! Generated ${stats.total_final_frames} frames (video generation failed)`);
+          setStatus(`Complete pipeline successful! Generated ${totalFrames} frames and ${navStats.total_alerts || 0} alerts (video generation failed)`);
         }
       } else {
         setStatus(`Pipeline failed: ${data.error}`);
@@ -444,7 +560,7 @@ export default function Dashboard() {
     }
 
     setLoading(true);
-    setStatus("Checking cache and starting smart pipeline...");
+    setStatus("🔍 Checking cache and starting smart pipeline with enhanced navigation alerts...");
 
     try {
       const response = await fetch(
@@ -460,35 +576,59 @@ export default function Dashboard() {
             generate_video: true,
             video_fps: videoSettings.fps,
             video_quality: videoSettings.quality,
+            enable_alerts: enableAlerts
           })
         }
       );
       
       const data = await response.json();
+      console.log("Smart pipeline response:", data);
+      
       if (response.ok && data.pipeline_success) {
         setRoute(data.route);
-        const stats = data.statistics;
+        const totalFrames = data.route.framesData?.length || 0;
+        const stats = data.statistics || {};
+        const navStats = data.navigation_stats || {};
         
         if (data.cached) {
-          setStatus(`Using cached route! Loaded ${stats.total_final_frames || data.route.framesData?.length || 0} frames instantly`);
+          setStatus(`✅ Using cached route! Loaded ${totalFrames} frames with ${navStats.total_alerts || 0} alerts (${navStats.total_landmarks || 0} landmarks) instantly`);
+          
+          if (data.video_info) {
+            setVideoInfo(data.video_info);
+            setVideoStatus(`✅ Using cached video: ${data.video_info.filename} (${data.video_info.file_size_mb} MB)`);
+            console.log("Loaded cached video from smart pipeline:", data.video_info);
+          } else if (data.route.videoGenerated && data.route.videoFilename) {
+            const constructedVideoInfo = {
+              filename: data.route.videoFilename,
+              video_url: `${pythonUrl}/videos/${data.route.pythonRouteId}/${data.route.videoFilename}`,
+              source_type: data.route.videoStats?.source_type || 'interpolated',
+              duration_seconds: data.route.videoStats?.duration_seconds,
+              fps: data.route.videoStats?.fps || videoSettings.fps,
+              resolution: data.route.videoStats?.resolution || '640x640',
+              file_size_mb: data.route.videoStats?.file_size_mb,
+              total_frames: data.route.videoStats?.total_frames || totalFrames,
+              video_stats: data.route.videoStats
+            };
+            setVideoInfo(constructedVideoInfo);
+            setVideoStatus(`✅ Using cached video: ${data.route.videoFilename}`);
+            console.log("Constructed video info from cached route:", constructedVideoInfo);
+          }
         } else {
-          setStatus(`New route processed! Generated ${stats.total_final_frames} frames`);
-        }
-        
-        if (data.video_info) {
-          setVideoInfo(data.video_info);
-          setVideoStatus(data.cached 
-            ? `Using cached video: ${data.video_info.filename}`
-            : `New video generated: ${data.video_info.filename}`
-          );
+          setStatus(`🆕 New route processed! Generated ${totalFrames} frames with ${navStats.total_alerts || 0} alerts (${navStats.total_landmarks || 0} landmarks)`);
+          
+          if (data.video_info) {
+            setVideoInfo(data.video_info);
+            setVideoStatus(`✅ New video generated: ${data.video_info.filename} (${data.video_info.file_size_mb} MB)`);
+            console.log("New video generated:", data.video_info);
+          }
         }
       } else {
-        setStatus(`Smart pipeline failed: ${data.error}`);
+        setStatus(`❌ Smart pipeline failed: ${data.error}`);
       }
 
     } catch (err) {
       console.error("Error in smart pipeline:", err);
-      setStatus(`Error: ${err.message}`);
+      setStatus(`❌ Error: ${err.message}`);
     } finally {
       setLoading(false);
     }
@@ -560,6 +700,17 @@ export default function Dashboard() {
   const generateVideo = async () => {
     if (!route || !route._id) return;
 
+    if (route.videoGenerated && route.videoFilename) {
+      const confirmRegenerate = window.confirm(
+        `A video already exists for this route (${route.videoFilename}).\n\nDo you want to regenerate it? This will overwrite the existing video.`
+      );
+      
+      if (!confirmRegenerate) {
+        setVideoStatus("Video generation cancelled - using existing video");
+        return;
+      }
+    }
+
     setVideoLoading(true);
     setVideoStatus("Generating video from processed frames...");
 
@@ -581,7 +732,7 @@ export default function Dashboard() {
       const data = await response.json();
       if (response.ok && data.video_info) {
         setVideoInfo(data.video_info);
-        setVideoStatus(`Video generated successfully! ${data.video_info.file_size_mb} MB`);
+        setVideoStatus(`✅ Video generated successfully! ${data.video_info.file_size_mb} MB`);
         
         setRoute(prevRoute => ({
           ...prevRoute,
@@ -590,13 +741,28 @@ export default function Dashboard() {
           videoStats: data.video_info
         }));
       } else {
-        setVideoStatus(`Video generation failed: ${data.error}`);
+        setVideoStatus(`❌ Video generation failed: ${data.error}`);
       }
     } catch (err) {
-      setVideoStatus(`Error generating video: ${err.message}`);
+      setVideoStatus(`❌ Error generating video: ${err.message}`);
     } finally {
       setVideoLoading(false);
     }
+  };
+
+  const getTurnCount = () => {
+    if (!route || !route.framesData) return 0;
+    return route.framesData.filter(f => f.alertType === 'turn').length;
+  };
+
+  const getLandmarkCount = () => {
+    if (!route || !route.framesData) return 0;
+    return route.framesData.filter(f => f.alertType === 'landmark').length;
+  };
+
+  const getAlertedFramesCount = () => {
+    if (!route || !route.framesData) return 0;
+    return route.framesData.filter(f => f.alert).length;
   };
 
   return (
@@ -618,7 +784,7 @@ export default function Dashboard() {
           <div>
             <h1 className="text-3xl font-bold text-lime-400">RouteVision Dashboard</h1>
             <p className="text-gray-300 mt-1">
-              Generate → Smooth → Regenerate → Interpolate → Video generation with interactive map
+              Enhanced Navigation Alerts: Turns at 120m, Landmarks at 200m (Schools, Stations, Malls & More) | Smart Video Caching ⚡
             </p>
           </div>
         </div>
@@ -635,7 +801,7 @@ export default function Dashboard() {
         </div>
         
         <p className="mb-8 text-gray-300 text-lg">
-          Create smooth street view sequences with LSTM smoothing, optical flow interpolation, video generation, and interactive route visualization.
+          Create smooth street view sequences with LSTM smoothing, optical flow interpolation, <span className="text-lime-400 font-semibold">enhanced early navigation alerts</span> (120m for turns, 200m for landmarks), <span className="text-purple-400 font-semibold">smart video caching</span>, and interactive route visualization.
         </p>
 
         <form className="bg-gray-800/70 backdrop-blur-xl p-8 rounded-2xl shadow-2xl mb-8 border border-gray-700">
@@ -673,7 +839,7 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
             <div>
               <label className="flex items-center gap-2 text-sm font-medium text-lime-400 mb-3">
                 <Zap className="w-4 h-4" />
@@ -719,23 +885,37 @@ export default function Dashboard() {
                 <FileVideo className="w-4 h-4" />
                 Video Quality
               </label>
-              <div className="flex space-x-4">
-                {["high", "medium", "low"].map((quality) => (
-                  <label key={quality} className="flex items-center group cursor-pointer">
-                    <input
-                      type="radio"
-                      name="quality"
-                      value={quality}
-                      checked={videoSettings.quality === quality}
-                      onChange={(e) => setVideoSettings({...videoSettings, quality: e.target.value})}
-                      className="mr-2 text-lime-400 focus:ring-lime-400"
-                      disabled={loading || videoLoading}
-                    />
-                    <span className="capitalize text-gray-300 group-hover:text-lime-400 transition-colors duration-300">
-                      {quality}
-                    </span>
-                  </label>
-                ))}
+              <select
+                value={videoSettings.quality}
+                onChange={(e) => setVideoSettings({...videoSettings, quality: e.target.value})}
+                className="w-full p-3 bg-gray-700/70 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-lime-400 focus:border-transparent transition-all duration-300"
+                disabled={loading || videoLoading}
+              >
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="flex items-center gap-2 text-sm font-medium text-lime-400 mb-3">
+                <Bell className="w-4 h-4" />
+                Navigation Alerts
+              </label>
+              <div className="flex items-center h-12 px-4 bg-gray-700/70 border border-gray-600 rounded-lg">
+                <label className="flex items-center cursor-pointer group">
+                  <input
+                    type="checkbox"
+                    checked={enableAlerts}
+                    onChange={(e) => setEnableAlerts(e.target.checked)}
+                    className="mr-2 w-5 h-5 text-lime-400 focus:ring-lime-400 bg-gray-600 border-gray-500 rounded"
+                    disabled={loading || videoLoading}
+                  />
+                  <span className="text-gray-300 group-hover:text-lime-400 transition-colors duration-300 flex items-center gap-2">
+                    {enableAlerts ? '✅ Enabled' : '❌ Disabled'}
+                    {enableAlerts && <span className="text-xs text-lime-400">(120m/200m)</span>}
+                  </span>
+                </label>
               </div>
             </div>
           </div>
@@ -749,18 +929,20 @@ export default function Dashboard() {
                 <div>
                   <p className="font-medium mb-2 flex items-center gap-2">
                     <Zap className="w-4 h-4 animate-pulse" />
-                    Cached Route Found!
+                    ⚡ Cached Route Found! {cacheStatus.video_info && '(with Video)'}
                   </p>
-                  <p className="text-sm opacity-90">
+                  <p className="text-sm opacity-90 mb-2">
                     Route with {cacheStatus.route?.framesData?.length || 0} frames available.
+                    {cacheStatus.video_info && ` Video: ${cacheStatus.video_info.filename} (${cacheStatus.video_info.file_size_mb} MB)`}
                   </p>
                   <button
                     type="button"
                     onClick={handleUseCachedRoute}
-                    className="mt-3 bg-green-600/70 hover:bg-green-600 text-white px-4 py-2 rounded-md text-sm transition-all duration-300 transform hover:scale-105"
+                    className="mt-3 bg-green-600/70 hover:bg-green-600 text-white px-4 py-2 rounded-md text-sm transition-all duration-300 transform hover:scale-105 flex items-center gap-2"
                     disabled={loading || videoLoading}
                   >
-                    Use Cached Route
+                    <Zap className="w-4 h-4" />
+                    Use Cached Route {cacheStatus.video_info && '+ Video'}
                   </button>
                 </div>
               ) : cacheStatus.error ? (
@@ -786,7 +968,7 @@ export default function Dashboard() {
             >
               <span className="relative z-10 flex items-center gap-2">
                 <Zap className="w-4 h-4" />
-                {loading ? "Processing..." : "Smart Pipeline (Auto-Cache)"}
+                {loading ? "Processing..." : "⚡ Smart Pipeline (Auto-Cache)"}
               </span>
               <div className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/20 to-white/0 transform skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
             </button>
@@ -863,10 +1045,11 @@ export default function Dashboard() {
                   onClick={generateVideo}
                   disabled={loading || videoLoading || !route.framesData || route.framesData.length < 2}
                   className="group bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-700 hover:to-pink-700 disabled:from-gray-600 disabled:to-gray-700 text-white font-semibold px-6 py-3 rounded-lg transition-all duration-300 transform hover:scale-105 active:scale-95 hover:shadow-xl hover:shadow-red-400/30 relative overflow-hidden"
+                  title={route.videoGenerated ? "Video exists - click to regenerate" : "Generate new video"}
                 >
                   <span className="relative z-10 flex items-center gap-2">
                     <Play className="w-4 h-4" />
-                    {videoLoading ? "Generating Video..." : "Generate Video"}
+                    {videoLoading ? "Generating Video..." : route.videoGenerated ? "🔄 Regenerate Video" : "Generate Video"}
                   </span>
                   <div className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/20 to-white/0 transform skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
                 </button>
@@ -952,14 +1135,14 @@ export default function Dashboard() {
 
         {status && (
           <div className={`p-4 rounded-lg mb-6 border transition-all duration-300 ${
-            status.includes('Error') || status.includes('failed') ? 'bg-red-900/30 border-red-500/30 text-red-300' : 
-            status.includes('successful') || status.includes('complete') || status.includes('cached') ? 'bg-green-900/30 border-green-500/30 text-green-300' : 
+            status.includes('Error') || status.includes('failed') || status.includes('❌') ? 'bg-red-900/30 border-red-500/30 text-red-300' : 
+            status.includes('successful') || status.includes('complete') || status.includes('cached') || status.includes('✅') ? 'bg-green-900/30 border-green-500/30 text-green-300' : 
             'bg-blue-900/30 border-blue-500/30 text-blue-300'
           }`}>
             <p className="font-medium flex items-center gap-2">
               <div className={`w-2 h-2 rounded-full animate-pulse ${
-                status.includes('Error') || status.includes('failed') ? 'bg-red-400' : 
-                status.includes('successful') || status.includes('complete') || status.includes('cached') ? 'bg-green-400' : 
+                status.includes('Error') || status.includes('failed') || status.includes('❌') ? 'bg-red-400' : 
+                status.includes('successful') || status.includes('complete') || status.includes('cached') || status.includes('✅') ? 'bg-green-400' : 
                 'bg-blue-400'
               }`}></div>
               {status}
@@ -969,8 +1152,8 @@ export default function Dashboard() {
 
         {videoStatus && (
           <div className={`p-4 rounded-lg mb-6 border transition-all duration-300 ${
-            videoStatus.includes('Error') || videoStatus.includes('failed') ? 'bg-red-900/30 border-red-500/30 text-red-300' : 
-            videoStatus.includes('successful') ? 'bg-green-900/30 border-green-500/30 text-green-300' : 
+            videoStatus.includes('Error') || videoStatus.includes('failed') || videoStatus.includes('❌') ? 'bg-red-900/30 border-red-500/30 text-red-300' : 
+            videoStatus.includes('successful') || videoStatus.includes('✅') || videoStatus.includes('cached') || videoStatus.includes('Using') ? 'bg-green-900/30 border-green-500/30 text-green-300' : 
             'bg-blue-900/30 border-blue-500/30 text-blue-300'
           }`}>
             <p className="font-medium flex items-center gap-2">
@@ -980,13 +1163,131 @@ export default function Dashboard() {
           </div>
         )}
 
+        {navigationAlerts && (
+          <div className="bg-gray-800/70 backdrop-blur-xl p-8 rounded-2xl shadow-2xl mb-8 border border-gray-700">
+            <h3 className="text-2xl font-semibold text-lime-400 mb-6 flex items-center gap-3">
+              <div className="p-2 bg-lime-400/20 rounded-full">
+                <Bell className="w-6 h-6" />
+              </div>
+              Enhanced Navigation Alerts (120m Turns / 200m Landmarks)
+              <span className="text-base font-normal text-gray-300 ml-auto flex items-center gap-2 bg-gray-700/50 px-4 py-2 rounded-lg">
+                <AlertTriangle className="w-4 h-4 text-orange-400" />
+                Total: <span className="text-lime-400 font-semibold">{navigationAlerts.total_alerts || 0}</span>
+              </span>
+            </h3>
+
+            {loadingAlerts ? (
+              <div className="flex flex-col items-center justify-center py-12 space-y-4">
+                <div className="relative">
+                  <div className="w-16 h-16 border-4 border-lime-400/30 border-t-lime-400 rounded-full animate-spin"></div>
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <Bell className="w-6 h-6 text-lime-400 animate-pulse" />
+                  </div>
+                </div>
+                <p className="text-gray-400 animate-pulse">Loading navigation alerts...</p>
+              </div>
+            ) : (navigationAlerts.total_alerts > 0 || route?.framesData?.some(f => f.alert)) ? (
+              <div className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {Object.entries(navigationAlerts.alerts_by_type || {}).map(([type, alerts]) => (
+                    <div key={type} className="bg-gray-700/50 p-4 rounded-xl border border-gray-600 transform hover:scale-105 transition-all duration-300">
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="text-lime-400 font-semibold capitalize flex items-center gap-2">
+                          {type === 'turn' ? <Navigation2 className="w-4 h-4" /> : <MapPin className="w-4 h-4" />}
+                          {type}s
+                          {type === 'turn' && <span className="text-xs text-gray-400">(120m)</span>}
+                          {type === 'landmark' && <span className="text-xs text-gray-400">(200m)</span>}
+                        </span>
+                        <span className="bg-lime-400/20 text-lime-400 px-3 py-1 rounded-full text-sm font-bold">
+                          {alerts.length}
+                        </span>
+                      </div>
+                      <div className="space-y-2 max-h-96 overflow-y-auto">
+                        {alerts.map((alert, idx) => (
+                          <div key={idx} className="text-sm text-gray-300 flex items-start gap-2 bg-gray-800/50 p-3 rounded hover:bg-gray-800/70 transition-colors duration-200">
+                            <span className="text-xl flex-shrink-0 mt-0.5">
+                              {type === 'turn' ? getAlertIcon(alert.alertIcon) : getCategoryEmoji(alert.category)}
+                            </span>
+                            <div className="flex-1">
+                              <p className="font-medium text-white">{alert.alert}</p>
+                              <p className="text-xs text-gray-400 mt-1 flex items-center gap-2">
+                                <span className="bg-gray-700 px-2 py-0.5 rounded">Frame {alert.frameIndex}</span>
+                                <span className="text-lime-400 font-semibold">{alert.alertDistance?.toFixed(0)}m away</span>
+                              </p>
+                              {alert.category && (
+                                <p className="text-xs text-blue-400 mt-1 flex items-center gap-1">
+                                  {getCategoryIcon(alert.category)}
+                                  {alert.category}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="bg-gradient-to-r from-gray-700/50 to-gray-600/50 p-6 rounded-xl border border-gray-600">
+                  <h4 className="font-medium text-lime-400 mb-4 flex items-center gap-2">
+                    <TrendingUp className="w-5 h-5" />
+                    Enhanced Navigation Metadata
+                  </h4>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                    <div>
+                      <span className="text-gray-300">Total Turns:</span>
+                      <p className="text-white font-semibold text-lg">
+                        {navigationAlerts.navigation_metadata?.totalTurns || getTurnCount()}
+                      </p>
+                      <p className="text-xs text-lime-400">Detected at 120m</p>
+                    </div>
+                    <div>
+                      <span className="text-gray-300">Total Landmarks:</span>
+                      <p className="text-white font-semibold text-lg">
+                        {navigationAlerts.navigation_metadata?.totalLandmarks || getLandmarkCount()}
+                      </p>
+                      <p className="text-xs text-lime-400">Detected at 200m</p>
+                    </div>
+                    <div>
+                      <span className="text-gray-300">Alerted Frames:</span>
+                      <p className="text-white font-semibold text-lg">
+                        {navigationAlerts.navigation_metadata?.alertedFrames || getAlertedFramesCount()}
+                      </p>
+                    </div>
+                    <div>
+                      <span className="text-gray-300">Alert Density:</span>
+                      <p className="text-white font-semibold text-lg">
+                        {route?.framesData?.length 
+                          ? ((getAlertedFramesCount() / route.framesData.length) * 100).toFixed(1) 
+                          : 0}%
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="text-center py-12 text-gray-400">
+                <Bell className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                <p>No navigation alerts found for this route</p>
+                <p className="text-sm mt-2">Enable alerts when generating a new route</p>
+              </div>
+            )}
+          </div>
+        )}
+
         {videoInfo && (
           <div className="bg-gray-800/70 backdrop-blur-xl p-8 rounded-2xl shadow-2xl mb-8 border border-gray-700">
             <h3 className="text-2xl font-semibold text-lime-400 mb-6 flex items-center gap-3">
               <div className="p-2 bg-lime-400/20 rounded-full">
                 <Video className="w-6 h-6" />
               </div>
-              Generated Street View Video
+              Street View Video with Navigation Alerts
+              {videoStatus.includes('cached') || videoStatus.includes('Using cached') ? (
+                <span className="text-sm font-normal text-purple-400 ml-auto flex items-center gap-2 bg-purple-900/30 px-3 py-1 rounded-lg border border-purple-500/30">
+                  <Zap className="w-4 h-4" />
+                  Cached
+                </span>
+              ) : null}
             </h3>
             <div className="flex flex-col lg:flex-row gap-8">
               <div className="flex-1">
@@ -1011,29 +1312,58 @@ export default function Dashboard() {
                   <div className="space-y-3 text-sm">
                     <div className="flex justify-between">
                       <span className="text-gray-300">Source:</span>
-                      <span className="capitalize text-lime-400">{videoInfo.source_type}</span>
+                      <span className="capitalize text-lime-400">{videoInfo.source_type || 'interpolated'}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-300">Duration:</span>
-                      <span className="text-white">{videoInfo.duration_seconds?.toFixed(1)}s</span>
+                      <span className="text-white">{videoInfo.duration_seconds?.toFixed(1) || '0'}s</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-300">FPS:</span>
-                      <span className="text-white">{videoInfo.fps}</span>
+                      <span className="text-white">{videoInfo.fps || videoSettings.fps}</span>
                     </div>
+                    {videoInfo.video_stats?.speed_type === 'dynamic' && (
+                      <div className="flex justify-between">
+                        <span className="text-gray-300">Speed Type:</span>
+                        <span className="text-orange-400 font-semibold">🎬 Dynamic</span>
+                      </div>
+                    )}
+                    {videoInfo.video_stats?.slowdown_multiplier && (
+                      <div className="flex justify-between">
+                        <span className="text-gray-300">At Alerts:</span>
+                        <span className="text-orange-400 text-xs">{videoInfo.video_stats.slowdown_multiplier}</span>
+                      </div>
+                    )}
                     <div className="flex justify-between">
                       <span className="text-gray-300">Resolution:</span>
-                      <span className="text-white">{videoInfo.resolution}</span>
+                      <span className="text-white">{videoInfo.resolution || '640x640'}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-300">Size:</span>
-                      <span className="text-white">{videoInfo.file_size_mb} MB</span>
+                      <span className="text-white">{videoInfo.file_size_mb || 0} MB</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-300">Frames:</span>
-                      <span className="text-white">{videoInfo.total_frames}</span>
+                      <span className="text-white">{videoInfo.total_frames || videoInfo.video_stats?.total_source_frames || route?.framesData?.length || 0}</span>
+                    </div>
+                    {videoInfo.video_stats?.total_written_frames && videoInfo.video_stats.total_written_frames !== videoInfo.video_stats.total_source_frames && (
+                      <div className="flex justify-between">
+                        <span className="text-gray-300">Written:</span>
+                        <span className="text-orange-400 text-xs">{videoInfo.video_stats.total_written_frames} (slowed)</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between">
+                      <span className="text-gray-300">Alerts:</span>
+                      <span className="text-lime-400 font-semibold">{getAlertedFramesCount()}</span>
                     </div>
                   </div>
+                  {videoInfo.video_stats?.speed_type === 'dynamic' && (
+                    <div className="mt-4 p-3 bg-orange-900/20 border border-orange-500/30 rounded-lg">
+                      <p className="text-xs text-orange-300">
+                        🎬 <strong>Dynamic Speed:</strong> Video automatically slows down when approaching turns and landmarks for easy reading!
+                      </p>
+                    </div>
+                  )}
                   <div className="mt-6">
                     <a
                       href={videoInfo.video_url}
@@ -1077,6 +1407,24 @@ export default function Dashboard() {
                   <span className="text-lime-400 font-semibold">{route.framesData?.length || 0}</span>
                 </div>
                 <div className="flex justify-between">
+                  <span className="text-gray-300">Frames with Alerts:</span>
+                  <span className="text-orange-400 font-semibold">
+                    {getAlertedFramesCount()}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-300">Turn Alerts (120m):</span>
+                  <span className="text-blue-400 font-semibold">
+                    {getTurnCount()}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-300">Landmark Alerts (200m):</span>
+                  <span className="text-purple-400 font-semibold">
+                    {getLandmarkCount()}
+                  </span>
+                </div>
+                <div className="flex justify-between">
                   <span className="text-gray-300">Interpolated:</span>
                   <span className={`font-semibold ${route.interpolated ? 'text-green-400' : 'text-gray-500'}`}>
                     {route.interpolated ? 'Yes' : 'No'}
@@ -1085,7 +1433,13 @@ export default function Dashboard() {
                 <div className="flex justify-between">
                   <span className="text-gray-300">Video Generated:</span>
                   <span className={`font-semibold ${route.videoGenerated ? 'text-green-400' : 'text-gray-500'}`}>
-                    {route.videoGenerated ? 'Yes' : 'No'}
+                    {route.videoGenerated ? '✅ Yes' : 'No'}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-300">Alerts Enabled:</span>
+                  <span className={`font-semibold ${route.alertsEnabled ? 'text-green-400' : 'text-gray-500'}`}>
+                    {route.alertsEnabled ? '✅ Yes' : '❌ No'}
                   </span>
                 </div>
                 {route.interpolationFactor && (
@@ -1168,28 +1522,36 @@ export default function Dashboard() {
               Processing Statistics
             </h3>
             
-            {route.processingStats ? (
+            {route.processingStats || route.framesData ? (
               <>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
                   <div className="bg-gray-700/50 p-4 rounded-xl border border-gray-600 transform hover:scale-105 transition-all duration-300">
-                    <div className="text-3xl font-bold text-blue-400 mb-2">{route.processingStats.original_frames}</div>
+                    <div className="text-3xl font-bold text-blue-400 mb-2">
+                      {route.processingStats?.original_frames || (route.framesData?.filter(f => !f.interpolated).length) || 0}
+                    </div>
                     <div className="text-sm text-gray-300">Original Frames</div>
                   </div>
                   <div className="bg-gray-700/50 p-4 rounded-xl border border-gray-600 transform hover:scale-105 transition-all duration-300">
-                    <div className="text-3xl font-bold text-green-400 mb-2">{route.processingStats.regenerated_frames}</div>
+                    <div className="text-3xl font-bold text-green-400 mb-2">
+                      {route.processingStats?.regenerated_frames || (route.framesData?.filter(f => f.smoothedHeading).length) || 0}
+                    </div>
                     <div className="text-sm text-gray-300">Regenerated</div>
                   </div>
                   <div className="bg-gray-700/50 p-4 rounded-xl border border-gray-600 transform hover:scale-105 transition-all duration-300">
-                    <div className="text-3xl font-bold text-purple-400 mb-2">{route.processingStats.interpolated_frames}</div>
+                    <div className="text-3xl font-bold text-purple-400 mb-2">
+                      {route.processingStats?.interpolated_frames || (route.framesData?.filter(f => f.interpolated).length) || 0}
+                    </div>
                     <div className="text-sm text-gray-300">Interpolated</div>
                   </div>
                   <div className="bg-gray-700/50 p-4 rounded-xl border border-gray-600 transform hover:scale-105 transition-all duration-300">
-                    <div className="text-3xl font-bold text-orange-400 mb-2">{route.processingStats.total_final_frames}</div>
+                    <div className="text-3xl font-bold text-orange-400 mb-2">
+                      {route.processingStats?.total_final_frames || route.framesData?.length || 0}
+                    </div>
                     <div className="text-sm text-gray-300">Total Final</div>
                   </div>
                 </div>
                 
-                {route.processingStats.average_consistency && (
+                {route.processingStats?.average_consistency && (
                   <div className="mt-8 text-center">
                     <div className="text-xl font-medium text-gray-300 mb-4">
                       Motion Consistency: <span className="text-lime-400 font-bold">{(route.processingStats.average_consistency * 100).toFixed(1)}%</span>

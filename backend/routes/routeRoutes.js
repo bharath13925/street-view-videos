@@ -1,4 +1,3 @@
-// routes/routeRoutes.js - Complete routes with caching
 import express from "express";
 import { 
   generateRoute, 
@@ -7,34 +6,64 @@ import {
   interpolateFrames,
   processCompletePipeline,
   processCompletePipelineWithVideo,
-  processCompletePipelineWithVideoCached, // New cached version
+  processCompletePipelineWithVideoCached,
   generateVideo,
-  checkExistingRoute, // New endpoint
-  getRouteAnalytics 
+  checkExistingRoute,
+  getRouteAnalytics,
+  getRouteNavigationAlerts
 } from "../controllers/routeController.js";
 
 const router = express.Router();
 
-// NEW: Check for existing route endpoint
+// ==========================================
+// CACHE CHECKING
+// ==========================================
+// Check if route exists with complete pipeline and video
 router.post("/check-existing", checkExistingRoute);
 
-// Existing routes
+// ==========================================
+// ROUTE GENERATION
+// ==========================================
+// Generate route with visual overlays (50m turns, 100m landmarks)
 router.post("/generate", generateRoute);
+
+// ==========================================
+// ROUTE PROCESSING
+// ==========================================
+// Smooth headings using LSTM
 router.post("/:routeId/smooth", smoothRoute);
+
+// Regenerate frames with smoothed headings (preserves overlays)
 router.post("/:routeId/regenerate", regenerateFrames);
+
+// Apply optical flow interpolation (preserves overlays)
 router.post("/:routeId/interpolate", interpolateFrames);
 
-// Complete processing routes
+// ==========================================
+// COMPLETE PIPELINES
+// ==========================================
+// Complete pipeline: Generate → Smooth → Regenerate → Interpolate
 router.post("/process-complete", processCompletePipeline);
+
+// Complete pipeline + Video generation
 router.post("/process-complete-with-video", processCompletePipelineWithVideo);
 
-// NEW: Cached complete pipeline with video
+// Smart pipeline with caching + Dynamic Speed Video
 router.post("/process-complete-with-video-cached", processCompletePipelineWithVideoCached);
 
-// Video generation routes
+// ==========================================
+// VIDEO GENERATION
+// ==========================================
+// Generate dynamic speed video from processed frames
 router.post("/:routeId/generate-video", generateVideo);
 
-// Analytics route
+// ==========================================
+// ANALYTICS & NAVIGATION
+// ==========================================
+// Get route analytics (frames, headings, processing stats)
 router.get("/:routeId/analytics", getRouteAnalytics);
+
+// Get navigation alerts (turns at 50m, landmarks at 100m)
+router.get("/:routeId/navigation-alerts", getRouteNavigationAlerts);
 
 export default router;

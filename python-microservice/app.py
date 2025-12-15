@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List,Any,Dict,Union,Optional
+from typing import List, Any, Dict, Union, Optional
 import requests, polyline, os, math, re, cv2
 import numpy as np
 from pathlib import Path
@@ -10,8 +10,9 @@ import glob
 import json
 from datetime import datetime
 from dotenv import load_dotenv
+from PIL import Image, ImageDraw, ImageFont
 
-load_dotenv()  # Add this before getting the environment variable
+load_dotenv()
 
 # ------------------------
 # Config
@@ -20,6 +21,31 @@ GOOGLE_MAPS_API_KEY = os.getenv("PYTHON_API_KEY")
 
 FRAMES_DIR = Path("frames")
 FRAMES_DIR.mkdir(exist_ok=True)
+
+# Alert configuration
+TURN_ALERT_DISTANCE = 120  # meters
+LANDMARK_ALERT_DISTANCE = 200  # meters
+LANDMARK_SEARCH_RADIUS = 250  # meters
+
+# VIDEO SPEED CONFIGURATION
+NORMAL_SPEED_MULTIPLIER = 1.0
+ALERT_SPEED_MULTIPLIER = 0.3
+ALERT_SLOWDOWN_FRAMES = 5
+
+# TURN DETECTION THRESHOLD
+HEADING_CHANGE_THRESHOLD = 20  # degrees
+TURN_DETECTION_WINDOW = 3  # frames
+
+# Landmark categories
+IMPORTANT_LANDMARK_TYPES = [
+    'school', 'university', 'college',
+    'bus_station', 'transit_station', 'train_station', 'subway_station',
+    'shopping_mall', 'department_store',
+    'hospital', 'police', 'fire_station',
+    'airport', 'park', 'stadium', 'museum',
+    'restaurant', 'cafe', 'bank', 'atm',
+    'gas_station', 'parking'
+]
 
 # ------------------------
 # Import smoothers and optical flow
@@ -30,12 +56,9 @@ from optical_flow_interpolation import OpticalFlowInterpolator, create_interpola
 # ------------------------
 # FastAPI setup
 # ------------------------
-app = FastAPI(title="Street View + Heading Smoother + Optical Flow Service with Caching")
+app = FastAPI(title="Street View Navigation - Fixed Caching")
 
-
-origins = [
-    "https://street-view-videos.vercel.app", 
-]
+origins = ["https://street-view-videos.vercel.app", "http://localhost:3000"]
 
 app.add_middleware(
     CORSMiddleware,
@@ -45,32 +68,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 # ------------------------
-# New Request Models for Caching
-# ------------------------
-class ExistingRouteRequest(BaseModel):
-    start: str
-    end: str
-    interpolation_factor: int = 2
-    video_fps: int = 30
-    video_quality: str = "high"
-
-class VideoCheckRequest(BaseModel):
-    route_id: str
-    filename: str
-
-# ------------------------
-# Original Request Models
+# Request Models
 # ------------------------
 class RouteRequest(BaseModel):
     start: str
     end: str
+    enable_alerts: bool = True
 
 class CompleteProcessRequest(BaseModel):
     start: str
     end: str
     interpolation_factor: int = 2
+    enable_alerts: bool = True
 
 class Frame(BaseModel):
     lat: float
@@ -79,6 +89,11 @@ class Frame(BaseModel):
     smoothedHeading: float | None = None
     filename: str | None = None
     interpolated: bool = False
+    alert: str | None = None
+    alertType: str | None = None
+    alertDistance: float | None = None
+    alertIcon: str | None = None
+    category: str | None = None
 
 class SmoothReq(BaseModel):
     route_id: str
@@ -96,30 +111,17 @@ class InterpolateReq(BaseModel):
 class VideoGenerateReq(BaseModel):
     route_id: str
     fps: int = 30
-    output_format: str = "mp4"  # mp4, avi, mov
-    quality: str = "high"  # high, medium, low
+    output_format: str = "mp4"
+    quality: str = "high"
     include_interpolated: bool = True
 
-# ------------------------
-# Numpy Conversion Utility
-# ------------------------
-def convert_numpy_types(obj: Any) -> Any:
-    """Recursively convert numpy types to native Python types for JSON serialization"""
-    if isinstance(obj, np.integer):
-        return int(obj)
-    elif isinstance(obj, np.floating):
-        return float(obj)
-    elif isinstance(obj, np.ndarray):
-        return obj.tolist()
-    elif isinstance(obj, dict):
-        return {key: convert_numpy_types(value) for key, value in obj.items()}
-    elif isinstance(obj, list):
-        return [convert_numpy_types(item) for item in obj]
-    elif isinstance(obj, tuple):
-        return tuple(convert_numpy_types(item) for item in obj)
-    else:
-        return obj
-    
+class CacheCheckRequest(BaseModel):
+    start: str
+    end: str
+    interpolation_factor: int = 2
+    video_fps: int = 30
+    video_quality: str = "high"
+
 # ------------------------
 # Helper Functions
 # ------------------------
@@ -139,6 +141,15 @@ def calculate_heading(lat1, lon1, lat2, lon2):
     heading = math.degrees(math.atan2(x, y))
     return (heading + 360) % 360
 
+def normalize_angle_difference(angle1, angle2):
+    """Calculate the shortest angular difference between two headings"""
+    diff = angle2 - angle1
+    while diff > 180:
+        diff -= 360
+    while diff < -180:
+        diff += 360
+    return abs(diff)
+
 def interpolate_points(latlons, step_m=7):
     points = []
     for i in range(len(latlons)-1):
@@ -156,12 +167,10 @@ def safe_name(name: str) -> str:
     return re.sub(r"[^A-Za-z0-9_\-]", "_", name)[:50]
 
 def find_route_directory(route_id: str) -> Optional[Path]:
-    """Find route directory with fuzzy matching"""
     route_dir = FRAMES_DIR / route_id
     if route_dir.exists():
         return route_dir
     
-    # Try fuzzy matching
     all_dirs = [d for d in FRAMES_DIR.iterdir() if d.is_dir()]
     route_parts = route_id.lower().replace("_", " ").split()
     best_match = None
@@ -176,109 +185,23 @@ def find_route_directory(route_id: str) -> Optional[Path]:
     
     return best_match
 
-def get_route_metadata(route_dir: Path) -> Dict:
-    """Get metadata about an existing route"""
-    metadata = {
-        "route_id": route_dir.name,
-        "original_frames": [],
-        "smoothed_frames": [],
-        "interpolated_frames": [],
-        "videos": [],
-        "has_complete_pipeline": False
-    }
-    
-    # Check for original frames
-    original_frames = sorted(route_dir.glob("frame_*.jpg"))
-    metadata["original_frames"] = [str(f) for f in original_frames]
-    
-    # Check for smoothed frames
-    smoothed_dir = route_dir / "smoothed"
-    if smoothed_dir.exists():
-        smoothed_frames = sorted(smoothed_dir.glob("smoothed_*.jpg"))
-        metadata["smoothed_frames"] = [str(f) for f in smoothed_frames]
-        
-        # Check for interpolated frames
-        interp_dir = smoothed_dir / "interpolated"
-        if interp_dir.exists():
-            interp_frames = sorted(interp_dir.glob("interpolated_*.jpg"))
-            metadata["interpolated_frames"] = [str(f) for f in interp_frames]
-    
-    # Check for videos
-    videos_dir = route_dir / "videos"
-    if videos_dir.exists():
-        video_files = list(videos_dir.glob("*.mp4")) + list(videos_dir.glob("*.avi"))
-        metadata["videos"] = [{"filename": f.name, "path": str(f), "size_mb": f.stat().st_size / (1024 * 1024)} for f in video_files]
-    
-    # Determine if complete pipeline was run
-    metadata["has_complete_pipeline"] = (
-        len(metadata["original_frames"]) > 0 and
-        len(metadata["smoothed_frames"]) > 0 and
-        len(metadata["interpolated_frames"]) > 0
-    )
-    
-    return metadata
-
-def load_existing_frames_data(route_dir: Path) -> List[Dict]:
-    """Load existing frames data from directory structure"""
-    frames_data = []
-    
-    # Check for interpolated frames first (most complete)
-    interp_dir = route_dir / "smoothed" / "interpolated"
-    if interp_dir.exists():
-        interp_frames = sorted(interp_dir.glob("interpolated_*.jpg"))
-        if interp_frames:
-            # Load interpolated frames
-            for i, frame_path in enumerate(interp_frames):
-                frames_data.append({
-                    "lat": 0.0,  # Would need to be stored separately
-                    "lon": 0.0,
-                    "heading": 0.0,
-                    "smoothedHeading": 0.0,
-                    "filename": str(frame_path),
-                    "interpolated": "interpolated" in frame_path.name
-                })
-            return frames_data
-    
-    # Fall back to smoothed frames
-    smoothed_dir = route_dir / "smoothed"
-    if smoothed_dir.exists():
-        smoothed_frames = sorted(smoothed_dir.glob("smoothed_*.jpg"))
-        if smoothed_frames:
-            for i, frame_path in enumerate(smoothed_frames):
-                frames_data.append({
-                    "lat": 0.0,
-                    "lon": 0.0,
-                    "heading": 0.0,
-                    "smoothedHeading": 0.0,
-                    "filename": str(frame_path),
-                    "interpolated": False
-                })
-            return frames_data
-    
-    # Fall back to original frames
-    original_frames = sorted(route_dir.glob("frame_*.jpg"))
-    if original_frames:
-        for i, frame_path in enumerate(original_frames):
-            frames_data.append({
-                "lat": 0.0,
-                "lon": 0.0,
-                "heading": 0.0,
-                "smoothedHeading": None,
-                "filename": str(frame_path),
-                "interpolated": False
-            })
-    
-    return frames_data
-
-def load_existing_frames(route_id: str):
-    route_dir = FRAMES_DIR / route_id
-    if not route_dir.exists():
-        return None
-    frames = sorted(route_dir.glob("frame_*.jpg"))
-    return [{"filename": str(f)} for f in frames] if frames else None
+def convert_numpy_types(obj: Any) -> Any:
+    if isinstance(obj, np.integer):
+        return int(obj)
+    elif isinstance(obj, np.floating):
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, dict):
+        return {key: convert_numpy_types(value) for key, value in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_numpy_types(item) for item in obj]
+    elif isinstance(obj, tuple):
+        return tuple(convert_numpy_types(item) for item in obj)
+    else:
+        return obj
 
 def fetch_street_view_image(lat, lon, heading, filename):
-    """Fetch a single Street View image"""
     streetview_url = (
         "https://maps.googleapis.com/maps/api/streetview"
         f"?size=640x640&location={lat},{lon}&heading={heading}&pitch=0&key={GOOGLE_MAPS_API_KEY}"
@@ -289,29 +212,439 @@ def fetch_street_view_image(lat, lon, heading, filename):
         if r.status_code == 200 and r.content:
             with open(filename, "wb") as f:
                 f.write(r.content)
-            print(f"✅ Fetched new image: {filename} (heading: {heading:.2f})")
             return True
         else:
-            print(f"❌ Failed to fetch Street View at {lat},{lon} with heading {heading}")
             return False
     except Exception as e:
         print(f"❌ Error fetching Street View: {e}")
         return False
 
-# Video generation helper function
-def generate_video_from_frames(frame_paths, output_path, fps=30, quality="high"):
-    """Generate video from a list of frame paths (Windows-safe with fallback codecs)"""
+# ------------------------
+# VISUAL OVERLAY FUNCTIONS
+# ------------------------
+def draw_turn_arrow(image_path: str, turn_direction: str, distance: int) -> bool:
+    """Draw turn arrow at TOP of image"""
+    try:
+        img = Image.open(image_path)
+        draw = ImageDraw.Draw(img)
+        width, height = img.size
+        
+        try:
+            font_large = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 50)
+            font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 28)
+        except:
+            try:
+                font_large = ImageFont.truetype("arial.ttf", 50)
+                font_small = ImageFont.truetype("arial.ttf", 28)
+            except:
+                font_large = ImageFont.load_default()
+                font_small = ImageFont.load_default()
+        
+        box_height = 110
+        overlay = Image.new('RGBA', img.size, (0, 0, 0, 0))
+        overlay_draw = ImageDraw.Draw(overlay)
+        overlay_draw.rectangle([(0, 0), (width, box_height)], fill=(0, 0, 0, 200))
+        img = Image.alpha_composite(img.convert('RGBA'), overlay).convert('RGB')
+        draw = ImageDraw.Draw(img)
+        
+        arrow_map = {
+            'turn-left': '<--',
+            'turn-right': '-->',
+            'turn-slight-left': '/<-',
+            'turn-slight-right': '->\\',
+            'turn-sharp-left': '<<--',
+            'turn-sharp-right': '-->>',
+            'uturn-left': '<U',
+            'uturn-right': 'U>',
+            'straight': '^^^',
+            'merge': '==>',
+            'roundabout-left': '(@)',
+            'roundabout-right': '(@)',
+            'detected-left': '<--',
+            'detected-right': '-->'
+        }
+        
+        arrow = arrow_map.get(turn_direction, '-->')
+        draw.text((20, 15), arrow, fill=(255, 215, 0), font=font_large)
+        
+        turn_text = turn_direction.replace('-', ' ').replace('_', ' ').upper()
+        draw.text((120, 20), turn_text, fill=(255, 255, 255), font=font_small)
+        draw.text((120, 60), f"IN {distance}M", fill=(255, 215, 0), font=font_small)
+        
+        img.save(image_path)
+        print(f"✅ Drew turn arrow: {turn_text} at {distance}m on {image_path}")
+        return True
+        
+    except Exception as e:
+        print(f"❌ Error drawing turn arrow: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+def draw_landmark_pin(image_path: str, landmark_name: str, distance: int, category: str) -> bool:
+    """Draw landmark info at BOTTOM of image"""
+    try:
+        img = Image.open(image_path)
+        draw = ImageDraw.Draw(img)
+        width, height = img.size
+        
+        try:
+            font_large = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 36)
+            font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 24)
+        except:
+            try:
+                font_large = ImageFont.truetype("arial.ttf", 36)
+                font_small = ImageFont.truetype("arial.ttf", 24)
+            except:
+                font_large = ImageFont.load_default()
+                font_small = ImageFont.load_default()
+        
+        box_height = 100
+        box_y = height - box_height
+        overlay = Image.new('RGBA', img.size, (0, 0, 0, 0))
+        overlay_draw = ImageDraw.Draw(overlay)
+        overlay_draw.rectangle([(0, box_y), (width, height)], fill=(0, 0, 0, 200))
+        img = Image.alpha_composite(img.convert('RGBA'), overlay).convert('RGB')
+        draw = ImageDraw.Draw(img)
+        
+        category_text_map = {
+            '🏫 School': 'SCHOOL',
+            '🎓 University': 'UNIVERSITY',
+            '🎓 College': 'COLLEGE',
+            '🚌 Bus Station': 'BUS STATION',
+            '🚉 Transit Station': 'TRANSIT',
+            '🚆 Railway Station': 'TRAIN',
+            '🚇 Metro Station': 'METRO',
+            '🛍️ Shopping Mall': 'MALL',
+            '🏬 Shopping Center': 'SHOPPING',
+            '🏥 Hospital': 'HOSPITAL',
+            '👮 Police Station': 'POLICE',
+            '🚒 Fire Station': 'FIRE DEPT',
+            '✈️ Airport': 'AIRPORT',
+            '🌳 Park': 'PARK',
+            '🏟️ Stadium': 'STADIUM',
+            '🏛️ Museum': 'MUSEUM',
+            '🍽️ Restaurant': 'RESTAURANT',
+            '☕ Cafe': 'CAFE',
+            '🏦 Bank': 'BANK',
+            '💳 ATM': 'ATM',
+            '⛽ Gas Station': 'GAS',
+            '🅿️ Parking': 'PARKING'
+        }
+        
+        category_label = category_text_map.get(category, 'LOCATION')
+        draw.text((20, box_y + 10), category_label, fill=(100, 200, 255), font=font_large)
+        
+        max_chars = 30
+        display_name = landmark_name[:max_chars] + "..." if len(landmark_name) > max_chars else landmark_name
+        draw.text((20, box_y + 50), display_name.upper(), fill=(255, 255, 255), font=font_small)
+        draw.text((width - 120, box_y + 50), f"{distance}M", fill=(100, 200, 255), font=font_small)
+        
+        img.save(image_path)
+        print(f"✅ Drew landmark: {category_label} - {landmark_name} at {distance}m on {image_path}")
+        return True
+        
+    except Exception as e:
+        print(f"❌ Error drawing landmark pin: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+def add_visual_overlay_to_frame(frame_path: str, alert_data: dict) -> bool:
+    """Master function to add visual overlays"""
+    try:
+        if not alert_data or not alert_data.get('alert'):
+            return False
+        
+        alert_type = alert_data.get('alertType')
+        
+        if alert_type == 'turn':
+            turn_icon = alert_data.get('alertIcon', 'navigation')
+            distance = int(alert_data.get('alertDistance', 0))
+            return draw_turn_arrow(frame_path, turn_icon, distance)
+            
+        elif alert_type == 'landmark':
+            landmark_name = alert_data.get('alert', '').split('in')[0].strip()
+            if ':' in landmark_name:
+                landmark_name = landmark_name.split(':', 1)[1].strip()
+            distance = int(alert_data.get('alertDistance', 0))
+            category = alert_data.get('category', '📍 Location')
+            return draw_landmark_pin(frame_path, landmark_name, distance, category)
+        
+        return False
+        
+    except Exception as e:
+        print(f"❌ Error adding visual overlay: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+# ------------------------
+# TURN DETECTION
+# ------------------------
+def get_turn_instructions(directions_data):
+    """Extract turns from Google Directions"""
+    turns = []
+    if not directions_data or 'routes' not in directions_data:
+        return turns
+    
+    for leg in directions_data['routes'][0]['legs']:
+        for step in leg['steps']:
+            if 'maneuver' in step:
+                turns.append({
+                    'maneuver': step['maneuver'],
+                    'instruction': step.get('html_instructions', ''),
+                    'start_location': step['start_location'],
+                    'end_location': step['end_location'],
+                    'distance': step['distance']['value'],
+                    'duration': step['duration']['value'],
+                    'source': 'google'
+                })
+    
+    return turns
+
+def detect_all_turns_from_path(points_with_headings):
+    """Detect ALL turns by analyzing heading changes"""
+    detected_turns = []
+    
+    for i in range(len(points_with_headings) - TURN_DETECTION_WINDOW):
+        current_heading = points_with_headings[i]['heading']
+        future_heading = points_with_headings[i + TURN_DETECTION_WINDOW]['heading']
+        
+        heading_change = normalize_angle_difference(current_heading, future_heading)
+        
+        if heading_change >= HEADING_CHANGE_THRESHOLD:
+            diff = future_heading - current_heading
+            while diff > 180:
+                diff -= 360
+            while diff < -180:
+                diff += 360
+            
+            if diff < 0:
+                if heading_change > 60:
+                    maneuver = 'turn-sharp-left'
+                elif heading_change > 30:
+                    maneuver = 'turn-left'
+                else:
+                    maneuver = 'turn-slight-left'
+            else:
+                if heading_change > 60:
+                    maneuver = 'turn-sharp-right'
+                elif heading_change > 30:
+                    maneuver = 'turn-right'
+                else:
+                    maneuver = 'turn-slight-right'
+            
+            detected_turns.append({
+                'maneuver': maneuver,
+                'instruction': f'Detected {maneuver.replace("-", " ")}',
+                'start_location': {
+                    'lat': points_with_headings[i]['lat'],
+                    'lng': points_with_headings[i]['lon']
+                },
+                'heading_change': heading_change,
+                'distance': 0,
+                'duration': 0,
+                'source': 'detected'
+            })
+    
+    return detected_turns
+
+def merge_turns(google_turns, detected_turns):
+    """Merge Google and detected turns"""
+    all_turns = google_turns.copy()
+    
+    for detected in detected_turns:
+        is_duplicate = False
+        detected_lat = detected['start_location']['lat']
+        detected_lon = detected['start_location']['lng']
+        
+        for google_turn in google_turns:
+            google_lat = google_turn['start_location']['lat']
+            google_lon = google_turn['start_location']['lng']
+            distance = haversine(detected_lat, detected_lon, google_lat, google_lon)
+            
+            if distance < 30:
+                is_duplicate = True
+                break
+        
+        if not is_duplicate:
+            all_turns.append(detected)
+    
+    return all_turns
+
+# ------------------------
+# Navigation Alert Functions
+# ------------------------
+def is_important_landmark(place_types):
+    for place_type in place_types:
+        if place_type in IMPORTANT_LANDMARK_TYPES:
+            return True
+    return False
+
+def get_landmark_category(place_types):
+    category_map = {
+        'school': '🏫 School',
+        'university': '🎓 University',
+        'college': '🎓 College',
+        'bus_station': '🚌 Bus Station',
+        'transit_station': '🚉 Transit Station',
+        'train_station': '🚆 Railway Station',
+        'subway_station': '🚇 Metro Station',
+        'shopping_mall': '🛍️ Shopping Mall',
+        'department_store': '🏬 Shopping Center',
+        'hospital': '🏥 Hospital',
+        'police': '👮 Police Station',
+        'fire_station': '🚒 Fire Station',
+        'airport': '✈️ Airport',
+        'park': '🌳 Park',
+        'stadium': '🏟️ Stadium',
+        'museum': '🏛️ Museum',
+        'restaurant': '🍽️ Restaurant',
+        'cafe': '☕ Cafe',
+        'bank': '🏦 Bank',
+        'atm': '💳 ATM',
+        'gas_station': '⛽ Gas Station',
+        'parking': '🅿️ Parking'
+    }
+    
+    for place_type in place_types:
+        if place_type in category_map:
+            return category_map[place_type]
+    
+    return '📍 Point of Interest'
+
+def get_nearby_landmarks(lat, lon, radius=LANDMARK_SEARCH_RADIUS):
+    try:
+        type_filter = '|'.join(IMPORTANT_LANDMARK_TYPES[:5])
+        
+        places_url = (
+            "https://maps.googleapis.com/maps/api/place/nearbysearch/json"
+            f"?location={lat},{lon}&radius={radius}"
+            f"&type={type_filter}"
+            f"&key={GOOGLE_MAPS_API_KEY}"
+        )
+        
+        response = requests.get(places_url, timeout=5)
+        if response.status_code == 200:
+            data = response.json()
+            landmarks = []
+            
+            for place in data.get('results', [])[:5]:
+                place_lat = place['geometry']['location']['lat']
+                place_lon = place['geometry']['location']['lng']
+                distance = haversine(lat, lon, place_lat, place_lon)
+                place_types = place.get('types', [])
+                
+                if is_important_landmark(place_types):
+                    landmarks.append({
+                        'name': place['name'],
+                        'distance': distance,
+                        'types': place_types,
+                        'category': get_landmark_category(place_types),
+                        'rating': place.get('rating', 0),
+                        'location': {'lat': place_lat, 'lng': place_lon}
+                    })
+            
+            landmarks.sort(key=lambda x: (-x['rating'], x['distance']))
+            return landmarks[:3]
+        
+    except Exception as e:
+        print(f"⚠️ Error fetching landmarks: {e}")
+    
+    return []
+
+def generate_frame_alerts(lat, lon, turns, previous_alerts=None, frame_index=0):
+    """Generate alert METADATA ONLY"""
+    alerts = []
+    
+    if previous_alerts is None:
+        previous_alerts = set()
+    
+    for turn in turns:
+        turn_lat = turn['start_location']['lat']
+        turn_lon = turn['start_location']['lng']
+        distance = haversine(lat, lon, turn_lat, turn_lon)
+        
+        if distance <= TURN_ALERT_DISTANCE:
+            turn_type = turn['maneuver'].replace('_', ' ').title()
+            alert_key = f"turn_{turn['maneuver']}_{int(distance/10)*10}"
+            
+            if alert_key not in previous_alerts:
+                alerts.append({
+                    'alert': f"{turn_type} in {int(distance)}m",
+                    'alertType': 'turn',
+                    'alertDistance': distance,
+                    'alertIcon': turn['maneuver'],
+                    'priority': 1,
+                    'source': turn.get('source', 'google')
+                })
+                previous_alerts.add(alert_key)
+    
+    if frame_index % 5 == 0:
+        landmarks = get_nearby_landmarks(lat, lon)
+        for landmark in landmarks:
+            if landmark['distance'] <= LANDMARK_ALERT_DISTANCE:
+                landmark_key = f"landmark_{landmark['name']}_{int(landmark['distance']/20)*20}"
+                
+                if landmark_key not in previous_alerts:
+                    alerts.append({
+                        'alert': f"{landmark['category']}: {landmark['name']} in {int(landmark['distance'])}m",
+                        'alertType': 'landmark',
+                        'alertDistance': landmark['distance'],
+                        'alertIcon': 'map-pin',
+                        'category': landmark['category'],
+                        'priority': 2
+                    })
+                    previous_alerts.add(landmark_key)
+    
+    alerts.sort(key=lambda x: (x.get('priority', 999), x['alertDistance']))
+    
+    return alerts, previous_alerts
+
+# ------------------------
+# DYNAMIC SPEED VIDEO GENERATION
+# ------------------------
+def calculate_frame_durations(frames_data: List[Dict], base_fps: int) -> List[float]:
+    frame_durations = []
+    base_duration = 1.0 / base_fps
+    slow_duration = base_duration / ALERT_SPEED_MULTIPLIER
+    
+    for i, frame in enumerate(frames_data):
+        has_alert = frame.get('alert') is not None
+        
+        if has_alert:
+            frame_durations.append(slow_duration)
+            
+            for offset in range(1, ALERT_SLOWDOWN_FRAMES + 1):
+                if i - offset >= 0 and len(frame_durations) >= offset:
+                    frame_durations[i - offset] = slow_duration
+        else:
+            in_slowdown_range = False
+            for offset in range(1, ALERT_SLOWDOWN_FRAMES + 1):
+                if i - offset >= 0 and frames_data[i - offset].get('alert'):
+                    in_slowdown_range = True
+                    break
+            
+            if in_slowdown_range:
+                frame_durations.append(slow_duration)
+            else:
+                frame_durations.append(base_duration)
+    
+    return frame_durations
+
+def generate_video_with_dynamic_speed(frame_paths, frames_data, output_path, fps=30, quality="high"):
     if not frame_paths:
         raise ValueError("No frame paths provided")
     
-    # Read first frame to get dimensions
     first_frame = cv2.imread(frame_paths[0])
     if first_frame is None:
         raise ValueError(f"Could not read first frame: {frame_paths[0]}")
     
     height, width, _ = first_frame.shape
     
-    # Set codec based on quality
+    frame_durations = calculate_frame_durations(frames_data, fps)
+    
     if quality == "high":
         codec_list = ['mp4v', 'XVID', 'MJPG']
     elif quality == "medium":
@@ -324,67 +657,63 @@ def generate_video_from_frames(frame_paths, output_path, fps=30, quality="high")
         codec = cv2.VideoWriter_fourcc(*c)
         out = cv2.VideoWriter(str(output_path), codec, fps, (width, height))
         if out.isOpened():
-            print(f"✅ VideoWriter opened successfully with codec: {c}")
             break
         else:
-            print(f"⚠️ Codec {c} failed, trying next...")
             out.release()
     
     if out is None or not out.isOpened():
-        # Try changing extension to .avi
         output_path = output_path.with_suffix(".avi")
         codec = cv2.VideoWriter_fourcc(*'XVID')
         out = cv2.VideoWriter(str(output_path), codec, fps, (width, height))
         if not out.isOpened():
-            raise RuntimeError(f"Failed to open video writer for {output_path}")
-        print(f"✅ Fallback codec used, writing AVI: {output_path}")
+            raise RuntimeError(f"Failed to open video writer")
     
-    print(f"🎬 Creating video with {len(frame_paths)} frames at {fps} FPS")
-    print(f"📺 Resolution: {width}x{height}")
+    total_written_frames = 0
+    base_frame_duration = 1.0 / fps
     
-    successful_frames = 0
     for i, frame_path in enumerate(frame_paths):
         frame = cv2.imread(frame_path)
-        if frame is not None:
-            if frame.shape[:2] != (height, width):
-                frame = cv2.resize(frame, (width, height))
+        if frame is None:
+            continue
+        
+        if frame.shape[:2] != (height, width):
+            frame = cv2.resize(frame, (width, height))
+        
+        target_duration = frame_durations[i] if i < len(frame_durations) else base_frame_duration
+        repeat_count = max(1, int(round(target_duration / base_frame_duration)))
+        
+        for _ in range(repeat_count):
             out.write(frame)
-            successful_frames += 1
-        else:
-            print(f"⚠️ Could not read frame: {frame_path}")
+            total_written_frames += 1
     
     out.release()
     
-    if successful_frames == 0:
-        raise RuntimeError("No frames could be processed")
+    actual_duration = total_written_frames / fps
     
-    print(f"✅ Video created successfully: {output_path}")
     return {
         "video_path": str(output_path),
-        "total_frames": len(frame_paths),
-        "successful_frames": successful_frames,
+        "total_source_frames": len(frame_paths),
+        "total_written_frames": total_written_frames,
         "fps": fps,
-        "duration_seconds": successful_frames / fps,
-        "resolution": f"{width}x{height}"
+        "duration_seconds": actual_duration,
+        "resolution": f"{width}x{height}",
+        "speed_type": "dynamic",
+        "slowdown_multiplier": f"{int((1/ALERT_SPEED_MULTIPLIER)*100)}% near alerts"
     }
 
 # ------------------------
-# Visual Odometry (VO)
+# Visual Odometry
 # ------------------------
 def compute_vo_headings(frames):
     vo_headings = []
     orb = cv2.ORB_create(nfeatures=1000)
     bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
 
-    print(f"🔍 Starting VO computation for {len(frames)} frames")
-
     for i in range(len(frames) - 1):
         file1 = frames[i]['filename']
         file2 = frames[i + 1]['filename']
 
-        # Ensure both files exist
         if not os.path.exists(file1) or not os.path.exists(file2):
-            print(f"⚠️ Missing file(s): {file1} or {file2}")
             vo_headings.append(None)
             continue
 
@@ -392,7 +721,6 @@ def compute_vo_headings(frames):
         img2 = cv2.imread(file2, cv2.IMREAD_GRAYSCALE)
 
         if img1 is None or img2 is None:
-            print(f"⚠️ Could not read image(s): {file1} or {file2}")
             vo_headings.append(None)
             continue
 
@@ -400,7 +728,6 @@ def compute_vo_headings(frames):
         kp2, des2 = orb.detectAndCompute(img2, None)
 
         if des1 is None or des2 is None:
-            print(f"⚠️ No descriptors for frame pair {i} and {i + 1}")
             vo_headings.append(None)
             continue
 
@@ -408,7 +735,6 @@ def compute_vo_headings(frames):
         matches = sorted(matches, key=lambda x: x.distance)
 
         if len(matches) < 4:
-            print(f"⚠️ Not enough matches ({len(matches)}) between frame {i} and {i + 1}")
             vo_headings.append(None)
             continue
 
@@ -420,169 +746,130 @@ def compute_vo_headings(frames):
         if M is not None:
             angle = math.degrees(math.atan2(M[1, 0], M[0, 0]))
             vo_headings.append(angle)
-            print(f"✅ VO heading [{i}] → [{i + 1}]: {angle:.2f}°")
         else:
-            print(f"⚠️ Transformation matrix estimation failed for pair {i}")
             vo_headings.append(None)
 
-    print(f"🧭 VO computation complete: {len(vo_headings)} headings computed.")
     return vo_headings
 
 # ------------------------
-# NEW CACHING ENDPOINTS
+# CACHE CHECK ENDPOINT
 # ------------------------
 @app.post("/check_existing_route")
-def check_existing_route(request: ExistingRouteRequest):
-    """Check if a route already exists with complete processing and video"""
+def check_existing_route(request: CacheCheckRequest):
+    """✅ Check if processed route with video already exists"""
     try:
         route_id = f"{safe_name(request.start)}_{safe_name(request.end)}"
-        print(f"🔍 Checking for existing route: {route_id}")
-        
         route_dir = find_route_directory(route_id)
+        
         if not route_dir:
-            return {
-                "exists": False,
-                "route_id": route_id,
-                "message": "Route directory not found"
-            }
+            return {"exists": False, "video_available": False}
         
-        print(f"✅ Found route directory: {route_dir}")
-        metadata = get_route_metadata(route_dir)
+        # Check for interpolated frames
+        interpolated_dir = route_dir / "smoothed" / "interpolated"
+        if not interpolated_dir.exists():
+            return {"exists": False, "video_available": False}
         
-        # Check if we have a complete pipeline
-        if not metadata["has_complete_pipeline"]:
-            return {
-                "exists": True,
-                "route_id": route_dir.name,
-                "complete_pipeline": False,
-                "video_available": False,
-                "message": "Route exists but pipeline incomplete"
-            }
-        
-        # Check for suitable video
-        suitable_video = None
-        for video in metadata["videos"]:
-            video_name_lower = video["filename"].lower()
-            # Check if video matches requirements (fps, quality, etc.)
-            if (f"{request.video_fps}fps" in video_name_lower or 
-                request.video_quality in video_name_lower or
-                "interpolated" in video_name_lower):
-                suitable_video = video
-                break
-        
-        if not suitable_video and metadata["videos"]:
-            # Use any available video
-            suitable_video = metadata["videos"][0]
-        
-        if not suitable_video:
-            return {
-                "exists": True,
-                "route_id": route_dir.name,
-                "complete_pipeline": True,
-                "video_available": False,
-                "message": "Route complete but no video found"
-            }
+        # Check for frames_data.json with alerts
+        frames_data_path = interpolated_dir / "frames_data.json"
+        if not frames_data_path.exists():
+            return {"exists": False, "video_available": False}
         
         # Load frames data
-        frames_data = load_existing_frames_data(route_dir)
+        with open(frames_data_path, 'r') as f:
+            frames_data = json.load(f)
         
-        # Generate processing stats
-        processing_stats = {
-            "original_frames": len(metadata["original_frames"]),
-            "smoothed_frames": len(metadata["smoothed_frames"]),
-            "interpolated_frames": len([f for f in frames_data if f.get("interpolated", False)]),
-            "total_final_frames": len(frames_data),
-            "interpolation_factor": request.interpolation_factor
-        }
+        # Check for video
+        videos_dir = route_dir / "videos"
+        if not videos_dir.exists():
+            return {
+                "exists": True,
+                "video_available": False,
+                "route_id": route_id,
+                "frames": frames_data
+            }
         
-        # Generate video stats
-        video_path = Path(suitable_video["path"])
-        video_stats = {
-            "source_type": "interpolated" if "interpolated" in suitable_video["filename"] else "smoothed",
-            "file_size_mb": suitable_video["size_mb"],
-            "fps": request.video_fps,  # Assume requested FPS
-            "quality": request.video_quality,
-            "duration_seconds": len(frames_data) / request.video_fps if frames_data else 0,
-            "resolution": "640x640",  # Default Street View resolution
-            "total_frames": len(frames_data)
-        }
+        # Find matching video
+        expected_filename = f"{safe_name(route_id)[:30]}_dynamic_{request.video_fps}fps.mp4"
+        video_path = videos_dir / expected_filename
         
-        print(f"🎬 Found suitable video: {suitable_video['filename']}")
-        print(f"📊 Processing stats: {processing_stats}")
+        if not video_path.exists():
+            # Try to find any video
+            videos = list(videos_dir.glob("*.mp4"))
+            if not videos:
+                return {
+                    "exists": True,
+                    "video_available": False,
+                    "route_id": route_id,
+                    "frames": frames_data
+                }
+            video_path = videos[0]
         
-        return convert_numpy_types({
+        # Get video stats
+        file_size_mb = video_path.stat().st_size / (1024 * 1024)
+        
+        print(f"✅ Cache HIT: Found route {route_id} with video {video_path.name}")
+        
+        return {
             "exists": True,
-            "route_id": route_dir.name,
-            "complete_pipeline": True,
             "video_available": True,
-            "video_filename": suitable_video["filename"],
-            "video_path": suitable_video["path"],
+            "route_id": route_id,
             "frames": frames_data,
-            "processing_stats": processing_stats,
-            "video_stats": video_stats,
-            "cached_at": datetime.now().isoformat()
-        })
+            "video_path": str(video_path),
+            "video_filename": video_path.name,
+            "video_stats": {
+                "file_size_mb": round(file_size_mb, 2),
+                "fps": request.video_fps,
+                "quality": request.video_quality,
+                "source_type": "interpolated",
+                "speed_type": "dynamic"
+            },
+            "processing_stats": {
+                "total_final_frames": len(frames_data),
+                "total_turns": 0,  # Will be calculated from frames
+                "total_alerts": sum(1 for f in frames_data if f.get('alert'))
+            }
+        }
         
     except Exception as e:
-        print(f"❌ Error checking existing route: {e}")
+        print(f"❌ Cache check error: {e}")
         import traceback
         traceback.print_exc()
-        return {
-            "exists": False,
-            "error": str(e),
-            "message": "Error checking existing route"
-        }
+        return {"exists": False, "video_available": False, "error": str(e)}
 
 @app.get("/check_video/{route_id}/{filename}")
 def check_video_exists(route_id: str, filename: str):
-    """Check if a specific video file exists"""
+    """Check if specific video file exists"""
     try:
         route_dir = find_route_directory(route_id)
         if not route_dir:
-            return {"exists": False, "message": "Route directory not found"}
+            return {"exists": False}
         
         video_path = route_dir / "videos" / filename
-        exists = video_path.exists()
-        
-        result = {"exists": exists}
-        if exists:
-            result.update({
-                "path": str(video_path),
-                "size_mb": video_path.stat().st_size / (1024 * 1024),
-                "modified": datetime.fromtimestamp(video_path.stat().st_mtime).isoformat()
-            })
-        
-        return result
+        return {"exists": video_path.exists(), "path": str(video_path) if video_path.exists() else None}
         
     except Exception as e:
-        print(f"❌ Error checking video: {e}")
         return {"exists": False, "error": str(e)}
 
 # ------------------------
-# ORIGINAL API ENDPOINTS (with caching awareness)
+# API ENDPOINTS
 # ------------------------
 @app.post("/generate_frames")
 def generate_frames(route: RouteRequest):
+    """✅ Generate frames with alert metadata ONLY"""
     route_id = f"{safe_name(route.start)}_{safe_name(route.end)}"
 
-    # Check for existing frames first
-    existing_frames = load_existing_frames(route_id)
-    if existing_frames:
-        vo_headings = compute_vo_headings(existing_frames)
-        print(f"🗂️ Using cached frames for route: {route_id}")
-        return {"route_id": route_id, "frames": existing_frames, "vo_headings": vo_headings, "cached": True}
+    print(f"🚀 Generating frames - METADATA ONLY (no overlays yet)")
 
-    print(f"🚀 Generating new frames for route: {route_id}")
-
-    # Fetch route
     directions_url = (
         "https://maps.googleapis.com/maps/api/directions/json"
         f"?origin={route.start}&destination={route.end}&key={GOOGLE_MAPS_API_KEY}"
     )
     resp = requests.get(directions_url).json()
+    
     if resp.get("status") != "OK":
         return {"error": resp.get("status"), "message": resp.get("error_message", "")}
 
+    directions_data = resp
     steps = resp["routes"][0]["overview_polyline"]["points"]
     latlons = polyline.decode(steps)
     points = interpolate_points(latlons, step_m=7)
@@ -590,36 +877,83 @@ def generate_frames(route: RouteRequest):
     route_dir = FRAMES_DIR / route_id
     route_dir.mkdir(parents=True, exist_ok=True)
 
+    google_turns = get_turn_instructions(directions_data) if route.enable_alerts else []
+    
+    points_with_headings = []
+    for idx in range(len(points)-1):
+        lat, lon = points[idx]
+        lat_next, lon_next = points[idx+1]
+        heading = calculate_heading(lat, lon, lat_next, lon_next)
+        points_with_headings.append({
+            'lat': lat,
+            'lon': lon,
+            'heading': heading,
+            'idx': idx
+        })
+    
+    detected_turns = detect_all_turns_from_path(points_with_headings) if route.enable_alerts else []
+    all_turns = merge_turns(google_turns, detected_turns) if route.enable_alerts else []
+    
+    print(f"📍 Google: {len(google_turns)} turns, Detected: {len(detected_turns)} turns, Total: {len(all_turns)} turns")
+    
     frames = []
+    previous_alerts = set()
+    total_landmarks_detected = 0
+    alert_count = 0
+    
     for idx in range(len(points)-1):
         lat, lon = points[idx]
         lat_next, lon_next = points[idx+1]
         heading = calculate_heading(lat, lon, lat_next, lon_next)
         filename = f"frame_{idx+1}.jpg"
         filepath = route_dir / filename
-
+        
+        alert_data = None
+        if route.enable_alerts:
+            frame_alerts, previous_alerts = generate_frame_alerts(
+                lat, lon, all_turns, previous_alerts, idx
+            )
+            
+            if frame_alerts:
+                alert_data = frame_alerts[0]
+                alert_count += 1
+                if alert_data.get('alertType') == 'landmark':
+                    total_landmarks_detected += 1
+        
         if fetch_street_view_image(lat, lon, heading, filepath):
-            frames.append({
+            frame_dict = {
                 "lat": lat,
                 "lon": lon,
                 "heading": heading,
                 "smoothedHeading": None,
                 "filename": str(filepath),
                 "interpolated": False
-            })
+            }
+            
+            if alert_data:
+                frame_dict.update(alert_data)
+                print(f"📌 Frame {idx+1}: Alert metadata stored - {alert_data['alert']}")
+            
+            frames.append(frame_dict)
 
-     # Compute VO headings after all frames are downloaded
-    vo_headings = []
-    if len(frames) > 1:
-        try:
-            vo_headings = compute_vo_headings(frames)
-            print(f"✅ Computed {len(vo_headings)} VO headings")
-        except Exception as e:
-            print(f"⚠️ VO heading computation failed: {e}")
-            vo_headings = [None] * (len(frames) - 1)  # Fill with None values
+    vo_headings = compute_vo_headings(frames) if len(frames) > 1 else []
     
+    print(f"✅ Generated {len(frames)} frames with {alert_count} alert metadata entries")
 
-    return {"route_id": route_id, "frames": frames, "vo_headings": vo_headings, "cached": False}
+    return {
+        "route_id": route_id,
+        "frames": frames,
+        "vo_headings": vo_headings,
+        "directions_data": directions_data,
+        "navigation_stats": {
+            "total_turns": len(all_turns),
+            "google_turns": len(google_turns),
+            "detected_turns": len(detected_turns),
+            "total_alerts": alert_count,
+            "total_landmarks": total_landmarks_detected
+        },
+        "cached": False
+    }
 
 @app.post("/smooth")
 def smooth(req: SmoothReq):
@@ -631,7 +965,6 @@ def smooth(req: SmoothReq):
         return {"route_id": req.route_id, "frames": [], "smoothed": False}
 
     sm = smooth_headings(raw)
-    print("Smoothed headings:", sm)
     
     for i, f in enumerate(req.frames):
         f.smoothedHeading = float(sm[i])
@@ -640,11 +973,10 @@ def smooth(req: SmoothReq):
 
 @app.post("/regenerate_frames")
 def regenerate_frames(req: RegenerateReq):
-    """Regenerate Street View frames using smoothed headings"""
+    """✅ Fetch new images with smoothed headings, preserve alerts"""
     if not req.frames or len(req.frames) == 0:
         return {"error": "No frames provided", "frames": []}
 
-    # Check if smoothed headings exist
     frames_with_smoothed = [f for f in req.frames if f.smoothedHeading is not None]
     if not frames_with_smoothed:
         return {"error": "No smoothed headings found", "frames": req.frames}
@@ -657,11 +989,9 @@ def regenerate_frames(req: RegenerateReq):
 
     for idx, frame in enumerate(req.frames):
         if frame.smoothedHeading is not None:
-            # Create new filename for smoothed frame
             new_filename = f"smoothed_frame_{idx+1}.jpg"
             new_filepath = route_dir / new_filename
 
-            # Fetch new image with smoothed heading
             success = fetch_street_view_image(
                 frame.lat, 
                 frame.lon, 
@@ -670,16 +1000,13 @@ def regenerate_frames(req: RegenerateReq):
             )
 
             if success:
-                # Update frame with new filename
                 frame.filename = str(new_filepath)
                 regenerated_count += 1
-                print(f"🔄 Regenerated frame {idx+1}: original heading {frame.heading:.2f}° → smoothed {frame.smoothedHeading:.2f}°")
-            else:
-                print(f"⚠️ Failed to regenerate frame {idx+1}, keeping original")
+                print(f"✅ Regenerated frame {idx+1} with smoothed heading")
         
         updated_frames.append(frame)
 
-    print(f"✅ Successfully regenerated {regenerated_count}/{len(req.frames)} frames")
+    print(f"✅ Regenerated {regenerated_count} frames")
 
     return {
         "route_id": req.route_id, 
@@ -690,244 +1017,108 @@ def regenerate_frames(req: RegenerateReq):
 
 @app.post("/interpolate_frames")
 def interpolate_frames(req: InterpolateReq):
-    """Generate interpolated frames using optical flow from smoothed frames"""
+    """✅ Apply overlays ONLY HERE on final interpolated frames"""
     if not req.frames or len(req.frames) < 2:
-        return {"error": "Need at least 2 frames for interpolation", "frames": req.frames}
+        return {"error": "Need at least 2 frames", "frames": req.frames}
 
-    print(f"🔍 Starting interpolation for route: {req.route_id}")
-    print(f"📊 Input frames count: {len(req.frames)}")
-    
-    # Debug: Check what we received
-    frames_with_files = [f for f in req.frames if f.filename]
-    print(f"📁 Frames with filename field: {len(frames_with_files)}")
-    
-    # Build valid frames list with improved path resolution
-    valid_frames = []
     route_base_dir = FRAMES_DIR / req.route_id
-    
-    # If the exact route directory doesn't exist, try to find it with fuzzy matching
     if not route_base_dir.exists():
-        print(f"⚠️ Exact route directory not found: {route_base_dir}")
-        print("🔍 Searching for similar directory names...")
-        
-        # Get all directories in FRAMES_DIR
-        all_dirs = [d for d in FRAMES_DIR.iterdir() if d.is_dir()]
-        
-        # Try to find matching directory using fuzzy matching
-        route_parts = req.route_id.lower().replace("_", " ").split()
-        best_match = None
-        best_score = 0
-        
-        for dir_path in all_dirs:
-            dir_name_lower = dir_path.name.lower().replace("_", " ")
-            
-            # Count how many route parts are in this directory name
-            score = sum(1 for part in route_parts if part in dir_name_lower)
-            
-            if score > best_score and score >= len(route_parts) * 0.7:  # At least 70% match
-                best_score = score
-                best_match = dir_path
-        
-        if best_match:
-            print(f"✅ Found matching directory: {best_match}")
-            route_base_dir = best_match
-        else:
-            # List available directories for debugging
-            available_dirs = [d.name for d in all_dirs]
-            print(f"❌ No matching directory found. Available directories: {available_dirs[:5]}...")
-            
-            return {
-                "error": "Route directory not found",
-                "details": {
-                    "requested_route_id": req.route_id,
-                    "frames_base_dir": str(FRAMES_DIR),
-                    "available_directories": available_dirs[:10],  # Show first 10
-                    "suggestion": "Check if the pythonRouteId in your database matches the actual folder name"
-                },
-                "frames": req.frames
-            }
+        route_base_dir = find_route_directory(req.route_id)
+        if not route_base_dir:
+            return {"error": "Route directory not found", "frames": req.frames}
     
-    # Now process frames with the correct base directory
-    for i, f in enumerate(req.frames):
-        if not f.filename:
-            print(f"⚠️  Frame {i+1}: No filename field")
-            continue
-            
-        frame_path = Path(f.filename)
-        
-        # Convert Windows paths to cross-platform paths
-        if "\\" in str(frame_path):
-            # Convert Windows path to Path object
-            parts = str(frame_path).split("\\")
-            frame_path = Path(*parts)
-        
-        # If the frame path doesn't exist, try alternative locations
-        if not frame_path.exists():
-            # Get just the filename
-            filename_only = frame_path.name
-            
-            # Try multiple locations in order of preference
-            search_paths = [
-                route_base_dir / filename_only,  # Direct in route dir
-                route_base_dir / "smoothed" / filename_only,  # In smoothed subdir
-                route_base_dir / "smoothed" / f"smoothed_{filename_only}",  # With smoothed prefix
-            ]
-            
-            # Also try with common smoothed frame naming patterns
-            if not filename_only.startswith("smoothed_"):
-                search_paths.extend([
-                    route_base_dir / "smoothed" / f"smoothed_frame_{i+1}.jpg",
-                    route_base_dir / f"smoothed_frame_{i+1}.jpg",
-                ])
-            
-            found_path = None
-            for search_path in search_paths:
-                if search_path.exists():
-                    found_path = search_path
-                    print(f"🔄 Frame {i+1}: Found at {found_path}")
-                    break
-            
-            if found_path:
-                # Update frame with correct path
-                f.filename = str(found_path)
-                valid_frames.append(f)
-            else:
-                print(f"❌ Frame {i+1}: File not found. Searched:")
-                for path in search_paths[:3]:  # Show first 3 search paths
-                    print(f"   - {path}")
-        else:
-            print(f"✅ Frame {i+1}: Found at {frame_path}")
-            valid_frames.append(f)
-    
-    print(f"✅ Valid frames for interpolation: {len(valid_frames)}")
+    valid_frames = [f for f in req.frames if f.filename and Path(f.filename).exists()]
     
     if len(valid_frames) < 2:
-        # Provide detailed debugging information
-        smoothed_dir = route_base_dir / "smoothed"
-        error_details = {
-            "total_frames_requested": len(req.frames),
-            "frames_with_filenames": len(frames_with_files),
-            "valid_frames_found": len(valid_frames),
-            "route_base_directory": str(route_base_dir),
-            "route_dir_exists": route_base_dir.exists(),
-            "smoothed_dir_exists": smoothed_dir.exists() if route_base_dir.exists() else False,
-        }
-        
-        # List actual files in the directories
-        if route_base_dir.exists():
-            original_files = list(route_base_dir.glob("*.jpg"))
-            error_details["original_jpg_files"] = len(original_files)
-            error_details["sample_original_files"] = [f.name for f in original_files[:3]]
-            
-            if smoothed_dir.exists():
-                smoothed_files = list(smoothed_dir.glob("*.jpg"))
-                error_details["smoothed_jpg_files"] = len(smoothed_files)
-                error_details["sample_smoothed_files"] = [f.name for f in smoothed_files[:3]]
-        
-        return {
-            "error": "Need at least 2 valid frame files for interpolation",
-            "details": error_details,
-            "suggestion": "Run regenerate_frames first to create smoothed frame files, or check that file paths in database match actual files",
-            "frames": req.frames
-        }
+        return {"error": "Need at least 2 valid frames", "frames": req.frames}
 
-    # Create interpolation directory
     interpolation_dir = route_base_dir / "smoothed" / "interpolated"
     interpolation_dir.mkdir(parents=True, exist_ok=True)
 
-    # Initialize optical flow interpolator
     interpolator = OpticalFlowInterpolator(interpolation_factor=req.interpolation_factor)
 
     try:
-        # Extract frame paths from valid frames
         frame_paths = [f.filename for f in valid_frames]
-        
-        print(f"🎬 Starting optical flow interpolation with factor {req.interpolation_factor}")
-        print(f"📁 Processing {len(frame_paths)} valid frames")
-        
-        # Process frame sequence with optical flow interpolation
         interpolated_paths = interpolator.process_frame_sequence(frame_paths, interpolation_dir)
         
-        # Create combined frames data including interpolated frames
         combined_frames_data = create_interpolated_frames_data(
             [f.dict() for f in valid_frames],
             interpolated_paths,
             req.interpolation_factor
         )
         
-        # Convert back to Frame objects
+        # ✅ APPLY OVERLAYS TO ALL FINAL FRAMES
+        overlays_applied = 0
+        print(f"🎨 Starting overlay application on {len(combined_frames_data)} final frames...")
+        
+        for i, frame_data in enumerate(combined_frames_data):
+            if frame_data.get('alert'):
+                alert_data = {
+                    'alert': frame_data['alert'],
+                    'alertType': frame_data['alertType'],
+                    'alertDistance': frame_data.get('alertDistance'),
+                    'alertIcon': frame_data.get('alertIcon'),
+                    'category': frame_data.get('category')
+                }
+                
+                frame_path = frame_data['filename']
+                print(f"🎨 Applying overlay to frame {i+1}/{len(combined_frames_data)}: {frame_path}")
+                
+                if add_visual_overlay_to_frame(frame_path, alert_data):
+                    overlays_applied += 1
+                    print(f"✅ Overlay {overlays_applied} applied: {alert_data['alert']}")
+                else:
+                    print(f"❌ Failed to apply overlay to {frame_path}")
+        
+        # ✅ SAVE frames_data.json with all metadata
+        frames_data_path = interpolation_dir / "frames_data.json"
+        with open(frames_data_path, 'w') as f:
+            json.dump(combined_frames_data, f, indent=2)
+        print(f"✅ Saved frames_data.json with {len(combined_frames_data)} frames")
+        
         updated_frames = [Frame(**frame_data) for frame_data in combined_frames_data]
         
-        # Calculate motion consistency scores
-        consistency_scores = interpolator.estimate_motion_consistency(interpolated_paths)
-        avg_consistency = sum(consistency_scores) / len(consistency_scores) if consistency_scores else 0.0
-        
-        interpolated_count = len(updated_frames) - len(valid_frames)
-        
-        print(f"✅ Generated {interpolated_count} interpolated frames")
-        print(f"📊 Average motion consistency: {avg_consistency:.3f}")
+        print(f"✅ Interpolation complete")
+        print(f"🎨 Applied {overlays_applied} visual overlays to FINAL frames")
         
         return {
             "route_id": req.route_id,
             "frames": updated_frames,
-            "interpolated_count": interpolated_count,
+            "interpolated_count": len(updated_frames) - len(valid_frames),
             "original_count": len(valid_frames),
             "total_count": len(updated_frames),
-            "average_consistency": avg_consistency,
-            "consistency_scores": consistency_scores,
-            "resolved_route_directory": str(route_base_dir),  # For debugging
+            "overlays_applied": overlays_applied,
             "success": True
         }
         
     except Exception as e:
-        print(f"❌ Error during optical flow interpolation: {e}")
+        print(f"❌ Interpolation error: {e}")
         import traceback
         traceback.print_exc()
-        return {
-            "error": f"Optical flow interpolation failed: {str(e)}",
-            "frames": req.frames,
-            "success": False
-        }
+        return {"error": str(e), "frames": req.frames, "success": False}
 
 @app.post("/process_complete_pipeline")
 def process_complete_pipeline(request: CompleteProcessRequest):
-    """Complete pipeline: Generate → Smooth → Regenerate → Interpolate"""
-    
     try:
-        print("🚀 Starting complete processing pipeline")
+        print("🚀 Starting complete pipeline")
         
-        # Step 1: Generate initial frames
-        print("1️⃣ Generating initial frames...")
-        route_request = RouteRequest(start=request.start, end=request.end)
+        route_request = RouteRequest(start=request.start, end=request.end, enable_alerts=request.enable_alerts)
         gen_result = generate_frames(route_request)
         if "error" in gen_result:
-            return {"error": gen_result["error"], "details": "Failed at generation step"}
-        # Store vo_headings from generation
-        vo_headings = gen_result.get("vo_headings", [])
-        print(f"📊 Retrieved {len(vo_headings)} VO headings from generation")
-
-        # Convert dict frames to Frame objects for validation
-        try:
-            frame_objects = [Frame(**frame_dict) for frame_dict in gen_result["frames"]]
-        except Exception as e:
-            return {"error": f"Invalid frame data: {str(e)}", "details": "Frame validation failed"}
+            return {"error": gen_result["error"]}
         
-        # Step 2: Smooth headings
-        print("2️⃣ Smoothing headings...")
+        frame_objects = [Frame(**frame_dict) for frame_dict in gen_result["frames"]]
+        
         smooth_req = SmoothReq(route_id=gen_result["route_id"], frames=frame_objects)
         smooth_result = smooth(smooth_req)
         if not smooth_result.get("smoothed", False):
-            return {"error": "Smoothing failed", "details": smooth_result}
+            return {"error": "Smoothing failed"}
         
-        # Step 3: Regenerate frames with smoothed headings
-        print("3️⃣ Regenerating frames with smoothed headings...")
         regen_req = RegenerateReq(route_id=gen_result["route_id"], frames=smooth_result["frames"])
         regen_result = regenerate_frames(regen_req)
         if not regen_result.get("success", False):
-            return {"error": "Frame regeneration failed", "details": regen_result}
+            return {"error": "Regeneration failed"}
         
-        # Step 4: Apply optical flow interpolation
-        print("4️⃣ Applying optical flow interpolation...")
         interp_req = InterpolateReq(
             route_id=gen_result["route_id"], 
             frames=regen_result["frames"],
@@ -935,144 +1126,120 @@ def process_complete_pipeline(request: CompleteProcessRequest):
         )
         interp_result = interpolate_frames(interp_req)
         if not interp_result.get("success", False):
-            return {"error": "Optical flow interpolation failed", "details": interp_result.get("error", "Unknown error")}
+            return {"error": "Interpolation failed"}
         
-        print("✅ Complete pipeline finished successfully!")
+        print("✅ Complete pipeline finished!")
         
-        # Prepare response data with safe defaults
-        response_data = {
+        return convert_numpy_types({
             "route_id": gen_result["route_id"],
             "pipeline_success": True,
-            "steps_completed": 4,
             "final_frames": [frame.dict() for frame in interp_result["frames"]],
-            "vo_headings": vo_headings,
+            "vo_headings": gen_result.get("vo_headings", []),
+            "directions_data": gen_result.get("directions_data", {}),
             "statistics": {
                 "original_frames": len(gen_result.get("frames", [])),
                 "regenerated_frames": regen_result.get("regenerated_count", 0),
                 "interpolated_frames": interp_result.get("interpolated_count", 0),
-                "total_final_frames": interp_result.get("total_count", len(interp_result.get("frames", []))),
-                "average_consistency": interp_result.get("average_consistency", 0.0)
-            }
-        }
-        
-        # Convert all numpy types to native Python types for JSON serialization
-        return convert_numpy_types(response_data)
+                "total_final_frames": interp_result.get("total_count", 0),
+                "overlays_applied": interp_result.get("overlays_applied", 0)
+            },
+            "navigation_stats": gen_result.get("navigation_stats", {})
+        })
         
     except Exception as e:
         print(f"❌ Pipeline error: {e}")
         import traceback
         traceback.print_exc()
-        return {
-            "error": f"Pipeline processing failed: {str(e)}",
-            "pipeline_success": False,
-            "details": str(e)
-        }
-    
+        return {"error": str(e), "pipeline_success": False}
+
 @app.post("/generate_video")
 def generate_video(req: VideoGenerateReq):
-    """Generate video from processed frames (smoothed + interpolated)"""
+    """✅ Video generation - uses final interpolated frames with overlays"""
     try:
-        print(f"🎬 Starting video generation for route: {req.route_id}")
+        print(f"🎬 Generating video from final frames with overlays")
         
-        # Find route directory
         route_base_dir = FRAMES_DIR / req.route_id
         if not route_base_dir.exists():
-            all_dirs = [d for d in FRAMES_DIR.iterdir() if d.is_dir()]
-            route_parts = req.route_id.lower().replace("_", " ").split()
-            best_match = None
-            best_score = 0
-            for dir_path in all_dirs:
-                dir_name_lower = dir_path.name.lower().replace("_", " ")
-                score = sum(1 for part in route_parts if part in dir_name_lower)
-                if score > best_score and score >= len(route_parts) * 0.7:
-                    best_score = score
-                    best_match = dir_path
-            if best_match:
-                route_base_dir = best_match
-            else:
-                available_dirs = [d.name for d in all_dirs]
-                return {"error": "Route directory not found", "details": {"requested_route_id": req.route_id, "available_directories": available_dirs[:10]}}
+            route_base_dir = find_route_directory(req.route_id)
+            if not route_base_dir:
+                return {"error": "Route not found"}
         
-        # Look for frames
-        frame_dirs_to_check = [
+        frame_dirs = [
             route_base_dir / "smoothed" / "interpolated",
             route_base_dir / "smoothed",
             route_base_dir,
         ]
         frame_paths = []
-        source_type = "unknown"
-        for frame_dir in frame_dirs_to_check:
+        frames_data = []
+        
+        for frame_dir in frame_dirs:
             if frame_dir.exists():
-                patterns = ["interpolated_*.jpg", "interp_*.jpg", "smoothed_*.jpg", "frame_*.jpg"]
+                patterns = ["interpolated_*.jpg", "smoothed_*.jpg", "frame_*.jpg"]
                 for pattern in patterns:
-                    found_frames = sorted(frame_dir.glob(pattern),
-                                          key=lambda x: int(''.join(filter(str.isdigit, x.stem)) or 0))
-                    if found_frames:
-                        frame_paths = [str(f) for f in found_frames]
-                        source_type = "interpolated" if "interpolated" in str(frame_dir) else "smoothed" if "smoothed" in str(frame_dir) else "original"
+                    found = sorted(frame_dir.glob(pattern),
+                                 key=lambda x: int(''.join(filter(str.isdigit, x.stem)) or 0))
+                    if found:
+                        frame_paths = [str(f) for f in found]
+                        print(f"📁 Using frames from: {frame_dir}")
+                        
+                        json_file = frame_dir / "frames_data.json"
+                        if json_file.exists():
+                            with open(json_file, 'r') as f:
+                                frames_data = json.load(f)
+                            print(f"📄 Loaded frames_data.json with {len(frames_data)} entries")
+                        else:
+                            frames_data = [{"alert": None} for _ in frame_paths]
                         break
                 if frame_paths:
                     break
-        if not frame_paths:
-            return {"error": "No frames found for video generation", "details": {"route_directory": str(route_base_dir), "checked_directories": [str(d) for d in frame_dirs_to_check], "suggestion": "Run the complete pipeline first"}}
         
-        # Create videos folder
+        if not frame_paths:
+            return {"error": "No frames found"}
+        
         videos_dir = route_base_dir / "videos"
         videos_dir.mkdir(exist_ok=True)
         
-        # Shorten filename to avoid Windows path issues
-        video_filename = f"{safe_name(req.route_id)[:30]}_{source_type}_{req.fps}fps.mp4"
+        video_filename = f"{safe_name(req.route_id)[:30]}_dynamic_{req.fps}fps.mp4"
         video_path = videos_dir / video_filename
         
-        # Generate video
-        video_stats = generate_video_from_frames(frame_paths, video_path, fps=req.fps, quality=req.quality)
+        video_stats = generate_video_with_dynamic_speed(
+            frame_paths, frames_data, video_path, fps=req.fps, quality=req.quality
+        )
         file_size_mb = video_path.stat().st_size / (1024 * 1024)
+        
+        video_stats["file_size_mb"] = round(file_size_mb, 2)
+        video_stats["video_filename"] = video_filename
+        
+        print(f"✅ Video generated: {video_path}")
         
         return convert_numpy_types({
             "route_id": req.route_id,
             "video_path": str(video_path),
             "video_filename": video_filename,
-            "source_type": source_type,
-            "file_size_mb": round(file_size_mb, 2),
             "video_stats": video_stats,
             "success": True
         })
     except Exception as e:
+        print(f"❌ Video error: {e}")
         import traceback
         traceback.print_exc()
-        return {"error": f"Video generation failed: {str(e)}", "route_id": req.route_id, "success": False}
+        return {"error": str(e), "success": False}
 
-# Add this endpoint to serve video files
 @app.get("/videos/{route_id}/{filename}")
 def serve_video(route_id: str, filename: str):
-    """Serve video files (Windows-safe with fuzzy matching)"""
     try:
         route_base_dir = find_route_directory(route_id)
         if not route_base_dir:
-            return {
-                "error": "Route directory not found",
-                "route_id": route_id,
-                "suggestion": "Check if route exists or run pipeline first"
-            }
+            return {"error": "Route not found"}
 
         video_path = route_base_dir / "videos" / filename
-
-        # Check if file exists
         if not video_path.exists():
-            return {
-                "error": "Video file not found",
-                "path": str(video_path),
-                "suggestion": "Run the pipeline and video generation first, or check filename"
-            }
+            return {"error": "Video not found"}
 
-        # Serve video file
         return FileResponse(
             path=str(video_path),
             media_type='video/mp4',
             filename=filename
         )
-
     except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return {"error": f"Error serving video: {str(e)}"}
+        return {"error": str(e)}
