@@ -11,6 +11,7 @@ import json
 from datetime import datetime
 from dotenv import load_dotenv
 from PIL import Image, ImageDraw, ImageFont
+import time
 
 load_dotenv()
 
@@ -25,26 +26,45 @@ FRAMES_DIR.mkdir(exist_ok=True)
 # Alert configuration - INCREASED distances for earlier warnings
 TURN_ALERT_DISTANCE = 120  # meters (was 50m)
 LANDMARK_ALERT_DISTANCE = 200  # meters (was 100m)
-LANDMARK_SEARCH_RADIUS = 250  # meters
+LANDMARK_SEARCH_RADIUS = 500  # meters - INCREASED from 250m
 
-# VIDEO SPEED CONFIGURATION
+# VIDEO SPEED CONFIGURATION - EVEN SLOWER FOR LANDMARKS
 NORMAL_SPEED_MULTIPLIER = 1.0
-ALERT_SPEED_MULTIPLIER = 0.3
-ALERT_SLOWDOWN_FRAMES = 5
+TURN_ALERT_SPEED_MULTIPLIER = 0.05  # 5% speed = 20x slower for turns
+LANDMARK_ALERT_SPEED_MULTIPLIER = 0.02  # 2% speed = 50x slower for landmarks (MUCH SLOWER!)
+ALERT_SLOWDOWN_FRAMES = 40  # Extended to 40 frames before/after alert
 
 # TURN DETECTION THRESHOLD
 HEADING_CHANGE_THRESHOLD = 20  # degrees
 TURN_DETECTION_WINDOW = 3  # frames
 
-# Landmark categories
+# ✅ Rate limiting configuration
+PLACES_API_DELAY = 0.2  # seconds between API calls
+LAST_PLACES_API_CALL = 0
+
+# ✅ REFINED Landmark categories - Only important places
 IMPORTANT_LANDMARK_TYPES = [
-    'school', 'university', 'college',
-    'bus_station', 'transit_station', 'train_station', 'subway_station',
-    'shopping_mall', 'department_store',
-    'hospital', 'police', 'fire_station',
-    'airport', 'park', 'stadium', 'museum',
-    'restaurant', 'cafe', 'bank', 'atm',
-    'gas_station', 'parking'
+    'school', 
+    'university', 
+    'college',
+    'bus_station',
+    'train_station', 
+    'subway_station',
+    'shopping_mall',
+    'hospital',
+    'airport',
+    'restaurant', 
+    'bank', 
+    'atm',
+    'gas_station', 
+    'parking', 
+    'store', 
+    'supermarket',
+    'pharmacy', 
+    'church', 
+    'temple', 
+    'mosque',
+    'library'
 ]
 
 # ------------------------
@@ -56,7 +76,7 @@ from optical_flow_interpolation import OpticalFlowInterpolator, create_interpola
 # ------------------------
 # FastAPI setup
 # ------------------------
-app = FastAPI(title="Street View Navigation - Fixed Alerts & Caching")
+app = FastAPI(title="Street View Navigation - NEW Places API")
 
 origins = ["https://street-view-videos.vercel.app", "http://localhost:3000", "http://localhost:5173"]
 
@@ -150,7 +170,7 @@ def normalize_angle_difference(angle1, angle2):
         diff += 360
     return abs(diff)
 
-def interpolate_points(latlons, step_m=7):
+def interpolate_points(latlons, step_m=3):
     points = []
     for i in range(len(latlons)-1):
         lat1, lon1 = latlons[i]
@@ -220,7 +240,7 @@ def fetch_street_view_image(lat, lon, heading, filename):
         return False
 
 # ------------------------
-# ✅ NEW: Helper to find closest point index
+# ✅ Helper to find closest point index
 # ------------------------
 def find_closest_point_index(lat, lon, points_with_headings):
     """Maps a lat/lon to the nearest frame index in the route"""
@@ -236,7 +256,7 @@ def find_closest_point_index(lat, lon, points_with_headings):
     return best_idx
 
 # ------------------------
-# VISUAL OVERLAY FUNCTIONS
+# VISUAL OVERLAY FUNCTIONS - IMPROVED TEXT DISPLAY
 # ------------------------
 def draw_turn_arrow(image_path: str, turn_direction: str, distance: int) -> bool:
     """Draw turn arrow at TOP of image - ASCII TEXT ONLY"""
@@ -263,7 +283,6 @@ def draw_turn_arrow(image_path: str, turn_direction: str, distance: int) -> bool
         img = Image.alpha_composite(img.convert('RGBA'), overlay).convert('RGB')
         draw = ImageDraw.Draw(img)
         
-        # ✅ ASCII arrows only (no emoji)
         arrow_map = {
             'turn-left': '<--',
             'turn-right': '-->',
@@ -299,65 +318,105 @@ def draw_turn_arrow(image_path: str, turn_direction: str, distance: int) -> bool
         return False
 
 def draw_landmark_pin(image_path: str, landmark_name: str, distance: int, category: str) -> bool:
-    """Draw landmark info at BOTTOM of image - TEXT ONLY (no emoji)"""
+    """✅ IMPROVED: Draw landmark info at BOTTOM with FULL text display - multi-line support"""
     try:
         img = Image.open(image_path)
         draw = ImageDraw.Draw(img)
         width, height = img.size
         
         try:
-            font_large = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 36)
-            font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 24)
+            font_large = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 32)
+            font_medium = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 26)
+            font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 22)
         except:
             try:
-                font_large = ImageFont.truetype("arial.ttf", 36)
-                font_small = ImageFont.truetype("arial.ttf", 24)
+                font_large = ImageFont.truetype("arial.ttf", 32)
+                font_medium = ImageFont.truetype("arial.ttf", 26)
+                font_small = ImageFont.truetype("arial.ttf", 22)
             except:
                 font_large = ImageFont.load_default()
+                font_medium = ImageFont.load_default()
                 font_small = ImageFont.load_default()
         
-        box_height = 100
+        # ✅ INCREASED box height for multi-line text
+        box_height = 130
         box_y = height - box_height
         overlay = Image.new('RGBA', img.size, (0, 0, 0, 0))
         overlay_draw = ImageDraw.Draw(overlay)
-        overlay_draw.rectangle([(0, box_y), (width, height)], fill=(0, 0, 0, 200))
+        overlay_draw.rectangle([(0, box_y), (width, height)], fill=(0, 0, 0, 220))
         img = Image.alpha_composite(img.convert('RGBA'), overlay).convert('RGB')
         draw = ImageDraw.Draw(img)
         
-        # ✅ TEXT-ONLY categories (no emoji in overlay)
         category_text_map = {
             'SCHOOL': 'SCHOOL',
             'UNIVERSITY': 'UNIVERSITY',
             'COLLEGE': 'COLLEGE',
             'BUS_STATION': 'BUS STATION',
-            'TRANSIT_STATION': 'TRANSIT',
             'TRAIN_STATION': 'TRAIN',
             'SUBWAY_STATION': 'METRO',
             'SHOPPING_MALL': 'MALL',
-            'DEPARTMENT_STORE': 'SHOPPING',
             'HOSPITAL': 'HOSPITAL',
-            'POLICE': 'POLICE',
-            'FIRE_STATION': 'FIRE DEPT',
             'AIRPORT': 'AIRPORT',
-            'PARK': 'PARK',
-            'STADIUM': 'STADIUM',
-            'MUSEUM': 'MUSEUM',
             'RESTAURANT': 'RESTAURANT',
-            'CAFE': 'CAFE',
             'BANK': 'BANK',
             'ATM': 'ATM',
             'GAS_STATION': 'GAS',
-            'PARKING': 'PARKING'
+            'PARKING': 'PARKING',
+            'STORE': 'STORE',
+            'SUPERMARKET': 'SUPERMARKET',
+            'PHARMACY': 'PHARMACY',
+            'CHURCH': 'CHURCH',
+            'TEMPLE': 'TEMPLE',
+            'MOSQUE': 'MOSQUE',
+            'LIBRARY': 'LIBRARY'
         }
         
-        # Extract text-only label from category
         category_label = category_text_map.get(category.upper().replace(' ', '_'), category)
         draw.text((20, box_y + 10), category_label, fill=(100, 200, 255), font=font_large)
         
-        max_chars = 30
-        display_name = landmark_name[:max_chars] + "..." if len(landmark_name) > max_chars else landmark_name
-        draw.text((20, box_y + 50), display_name.upper(), fill=(255, 255, 255), font=font_small)
-        draw.text((width - 120, box_y + 50), f"{distance}M", fill=(100, 200, 255), font=font_small)
+        # ✅ IMPROVED: Smart text wrapping for long landmark names
+        max_width = width - 160  # Leave space for distance on right
+        
+        # Function to wrap text
+        def wrap_text(text, font, max_width):
+            words = text.split()
+            lines = []
+            current_line = []
+            
+            for word in words:
+                test_line = ' '.join(current_line + [word])
+                bbox = draw.textbbox((0, 0), test_line, font=font)
+                text_width = bbox[2] - bbox[0]
+                
+                if text_width <= max_width:
+                    current_line.append(word)
+                else:
+                    if current_line:
+                        lines.append(' '.join(current_line))
+                    current_line = [word]
+            
+            if current_line:
+                lines.append(' '.join(current_line))
+            
+            # Limit to 2 lines maximum
+            if len(lines) > 2:
+                second_line = lines[1]
+                if len(second_line) > 25:
+                    second_line = second_line[:25] + "..."
+                lines = [lines[0], second_line]
+            
+            return lines
+        
+        landmark_lines = wrap_text(landmark_name.upper(), font_medium, max_width)
+        
+        # Draw landmark name (with line wrapping)
+        y_offset = box_y + 50
+        for i, line in enumerate(landmark_lines):
+            draw.text((20, y_offset + (i * 28)), line, fill=(255, 255, 255), font=font_medium)
+        
+        # Draw distance on the right
+        distance_text = f"{distance}M"
+        draw.text((width - 110, box_y + 50), distance_text, fill=(100, 200, 255), font=font_large)
         
         img.save(image_path)
         print(f"✅ Drew landmark: {category_label} - {landmark_name} at {distance}m on {image_path}")
@@ -493,97 +552,150 @@ def merge_turns(google_turns, detected_turns):
     return all_turns
 
 # ------------------------
-# Navigation Alert Functions
+# ✅ NEW PLACES API FUNCTIONS
 # ------------------------
 def is_important_landmark(place_types):
-    for place_type in place_types:
-        if place_type in IMPORTANT_LANDMARK_TYPES:
+    """✅ Check if place is an important landmark"""
+    for t in place_types:
+        if t in IMPORTANT_LANDMARK_TYPES:
             return True
     return False
 
 def get_landmark_category(place_types):
-    """✅ Returns TEXT-ONLY categories (no emoji)"""
+    """✅ Get category for landmark"""
     category_map = {
         'school': 'SCHOOL',
         'university': 'UNIVERSITY',
         'college': 'COLLEGE',
         'bus_station': 'BUS_STATION',
-        'transit_station': 'TRANSIT_STATION',
         'train_station': 'TRAIN_STATION',
         'subway_station': 'SUBWAY_STATION',
         'shopping_mall': 'SHOPPING_MALL',
-        'department_store': 'DEPARTMENT_STORE',
         'hospital': 'HOSPITAL',
-        'police': 'POLICE',
-        'fire_station': 'FIRE_STATION',
         'airport': 'AIRPORT',
-        'park': 'PARK',
-        'stadium': 'STADIUM',
-        'museum': 'MUSEUM',
         'restaurant': 'RESTAURANT',
-        'cafe': 'CAFE',
         'bank': 'BANK',
         'atm': 'ATM',
         'gas_station': 'GAS_STATION',
-        'parking': 'PARKING'
+        'parking': 'PARKING',
+        'store': 'STORE',
+        'supermarket': 'SUPERMARKET',
+        'pharmacy': 'PHARMACY',
+        'church': 'CHURCH',
+        'temple': 'TEMPLE',
+        'mosque': 'MOSQUE',
+        'library': 'LIBRARY'
     }
     
-    for place_type in place_types:
-        if place_type in category_map:
-            return category_map[place_type]
+    for t in place_types:
+        if t in category_map:
+            return category_map[t]
     
     return 'LOCATION'
 
 def get_nearby_landmarks(lat, lon, radius=LANDMARK_SEARCH_RADIUS):
-    try:
-        type_filter = '|'.join(IMPORTANT_LANDMARK_TYPES[:5])
-        
-        places_url = (
-            "https://maps.googleapis.com/maps/api/place/nearbysearch/json"
-            f"?location={lat},{lon}&radius={radius}"
-            f"&type={type_filter}"
-            f"&key={GOOGLE_MAPS_API_KEY}"
-        )
-        
-        response = requests.get(places_url, timeout=5)
-        if response.status_code == 200:
-            data = response.json()
-            landmarks = []
-            
-            for place in data.get('results', [])[:5]:
-                place_lat = place['geometry']['location']['lat']
-                place_lon = place['geometry']['location']['lng']
-                distance = haversine(lat, lon, place_lat, place_lon)
-                place_types = place.get('types', [])
-                
-                if is_important_landmark(place_types):
-                    landmarks.append({
-                        'name': place['name'],
-                        'distance': distance,
-                        'types': place_types,
-                        'category': get_landmark_category(place_types),
-                        'rating': place.get('rating', 0),
-                        'location': {'lat': place_lat, 'lng': place_lon}
-                    })
-            
-            landmarks.sort(key=lambda x: (-x['rating'], x['distance']))
-            return landmarks[:3]
-        
-    except Exception as e:
-        print(f"⚠️ Error fetching landmarks: {e}")
+    """✅ NEW PLACES API - Fetch landmarks using Places API (New)"""
+    global LAST_PLACES_API_CALL
     
-    return []
+    try:
+        # ✅ Rate limiting
+        current_time = time.time()
+        time_since_last_call = current_time - LAST_PLACES_API_CALL
+        if time_since_last_call < PLACES_API_DELAY:
+            time.sleep(PLACES_API_DELAY - time_since_last_call)
+        
+        # ✅ NEW PLACES API ENDPOINT
+        places_url = "https://places.googleapis.com/v1/places:searchNearby"
+        
+        # ✅ NEW API uses POST with JSON body
+        headers = {
+            "Content-Type": "application/json",
+            "X-Goog-Api-Key": GOOGLE_MAPS_API_KEY,
+            "X-Goog-FieldMask": "places.displayName,places.types,places.location,places.rating"
+        }
+        
+        body = {
+            "locationRestriction": {
+                "circle": {
+                    "center": {
+                        "latitude": lat,
+                        "longitude": lon
+                    },
+                    "radius": radius
+                }
+            },
+            "maxResultCount": 20
+        }
+        
+        response = requests.post(places_url, headers=headers, json=body, timeout=10)
+        LAST_PLACES_API_CALL = time.time()
+        
+        if response.status_code != 200:
+            print(f"❌ Places API (NEW) HTTP error {response.status_code}")
+            print(f"Response: {response.text[:500]}")
+            return []
+        
+        data = response.json()
+        results = data.get('places', [])
+        
+        landmarks = []
+        filtered_count = 0
+        
+        for place in results:
+            # ✅ NEW API format differences
+            place_name = place.get('displayName', {}).get('text', 'Unknown')
+            place_types = place.get('types', [])
+            
+            # ✅ Filter locally using important landmark list
+            if not is_important_landmark(place_types):
+                filtered_count += 1
+                continue
+            
+            location = place.get('location', {})
+            place_lat = location.get('latitude', lat)
+            place_lon = location.get('longitude', lon)
+            distance = haversine(lat, lon, place_lat, place_lon)
+            
+            landmarks.append({
+                'name': place_name,
+                'distance': distance,
+                'types': place_types,
+                'category': get_landmark_category(place_types),
+                'rating': place.get('rating', 0),
+                'location': {
+                    'lat': place_lat,
+                    'lng': place_lon
+                }
+            })
+        
+        # Sort by distance first, then rating
+        landmarks.sort(key=lambda x: (x['distance'], -x['rating']))
+        return landmarks[:3]
+    
+    except requests.exceptions.Timeout:
+        print(f"⚠️ Places API timeout")
+        return []
+    except requests.exceptions.RequestException as e:
+        print(f"⚠️ Places API request error: {e}")
+        return []
+    except Exception as e:
+        print(f"❌ Landmark fetch error: {e}")
+        import traceback
+        traceback.print_exc()
+        return []
 
-def generate_frame_alerts(lat, lon, turns, previous_alerts=None, frame_index=0):
-    """✅ FIXED: Generate alert METADATA ONLY - skips passed turns"""
+def generate_frame_alerts(lat, lon, turns, previous_alerts=None, frame_index=0, landmark_history=None):
+    """✅ FIXED: Prevents distance increases and stops showing passed landmarks"""
     alerts = []
     
     if previous_alerts is None:
         previous_alerts = set()
     
-    # ✅ CRITICAL FIX: Only alert for turns AHEAD of current frame
+    if landmark_history is None:
+        landmark_history = {}  # Store {landmark_name: last_distance}
+    
+    # ✅ Only alert for turns AHEAD of current frame
     for turn in turns:
-        # Skip turns that have already been passed
         if 'turn_index' in turn and frame_index >= turn['turn_index']:
             continue
         
@@ -592,82 +704,211 @@ def generate_frame_alerts(lat, lon, turns, previous_alerts=None, frame_index=0):
         distance = haversine(lat, lon, turn_lat, turn_lon)
         
         if distance <= TURN_ALERT_DISTANCE:
-            turn_type = turn['maneuver'].replace('_', ' ').title()
-            alert_key = f"turn_{turn['maneuver']}_{int(distance/10)*10}"
-            
-            if alert_key not in previous_alerts:
+            key = f"turn_{turn['maneuver']}_{int(distance/10)*10}"
+            if key not in previous_alerts:
                 alerts.append({
-                    'alert': f"{turn_type} in {int(distance)}m",
+                    'alert': f"{turn['maneuver'].replace('-', ' ').title()} in {int(distance)}m",
                     'alertType': 'turn',
                     'alertDistance': distance,
                     'alertIcon': turn['maneuver'],
-                    'priority': 1,
-                    'source': turn.get('source', 'google')
+                    'priority': 1
                 })
-                previous_alerts.add(alert_key)
+                previous_alerts.add(key)
     
-    if frame_index % 5 == 0:
+    # 🔥 CHECK LANDMARKS MORE FREQUENTLY (every 2 frames)
+    if frame_index % 2 == 0:
         landmarks = get_nearby_landmarks(lat, lon)
-        for landmark in landmarks:
-            if landmark['distance'] <= LANDMARK_ALERT_DISTANCE:
-                landmark_key = f"landmark_{landmark['name']}_{int(landmark['distance']/20)*20}"
+        
+        for lm in landmarks:
+            landmark_id = lm['name']
+            current_distance = lm['distance']
+            
+            # ✅ Check if we've seen this landmark before
+            if landmark_id in landmark_history:
+                last_distance = landmark_history[landmark_id]
                 
-                if landmark_key not in previous_alerts:
+                # ✅ If distance is INCREASING, we've passed it - skip!
+                if current_distance > last_distance + 5:  # 5m tolerance for GPS jitter
+                    continue
+            
+            # ✅ Update history with current distance
+            landmark_history[landmark_id] = current_distance
+            
+            if current_distance <= LANDMARK_ALERT_DISTANCE:
+                # ✅ Use landmark name + rough distance bucket for deduplication
+                key = f"landmark_{landmark_id}_{int(current_distance/50)*50}"
+                
+                if key not in previous_alerts:
                     alerts.append({
-                        'alert': f"{landmark['category']}: {landmark['name']} in {int(landmark['distance'])}m",
+                        'alert': f"{lm['category']}: {lm['name']} in {int(current_distance)}m",
                         'alertType': 'landmark',
-                        'alertDistance': landmark['distance'],
+                        'alertDistance': current_distance,
                         'alertIcon': 'map-pin',
-                        'category': landmark['category'],
+                        'category': lm['category'],
                         'priority': 2
                     })
-                    previous_alerts.add(landmark_key)
+                    previous_alerts.add(key)
     
-    alerts.sort(key=lambda x: (x.get('priority', 999), x['alertDistance']))
-    
-    return alerts, previous_alerts
+    alerts.sort(key=lambda x: (x['priority'], x['alertDistance']))
+    return alerts, previous_alerts, landmark_history
 
 # ------------------------
-# DYNAMIC SPEED VIDEO GENERATION
+# ✅ IMPROVED DYNAMIC SPEED VIDEO GENERATION - SEPARATE SPEEDS FOR TURNS AND LANDMARKS
 # ------------------------
 def calculate_frame_durations(frames_data: List[Dict], base_fps: int) -> List[float]:
+    """✅ IMPROVED: Different slowdown speeds for turns vs landmarks - landmarks are MUCH SLOWER"""
     frame_durations = []
     base_duration = 1.0 / base_fps
-    slow_duration = base_duration / ALERT_SPEED_MULTIPLIER
+    turn_slow_duration = base_duration / TURN_ALERT_SPEED_MULTIPLIER  # 20x slower for turns
+    landmark_slow_duration = base_duration / LANDMARK_ALERT_SPEED_MULTIPLIER  # 50x slower for landmarks!
+    
+    print(f"\n🎬 ===== FRAME DURATION CALCULATION =====")
+    print(f"📊 Base FPS: {base_fps}, Base duration: {base_duration:.4f}s")
+    print(f"📊 Turn slowdown: {turn_slow_duration:.4f}s (20x slower)")
+    print(f"📊 Landmark slowdown: {landmark_slow_duration:.4f}s (50x SLOWER!)")
+    print(f"📊 Total frames to process: {len(frames_data)}")
+    
+    # ✅ Separate turn and landmark frames
+    turn_frames = {}
+    landmark_frames = {}
     
     for i, frame in enumerate(frames_data):
-        has_alert = frame.get('alert') is not None
+        has_alert = False
+        alert_info = None
+        
+        if frame.get('alert') and frame.get('alert') not in ['', 'null', None]:
+            has_alert = True
+            alert_info = {
+                'type': frame.get('alertType', 'unknown'),
+                'text': frame.get('alert', 'unknown'),
+                'distance': frame.get('alertDistance', 0)
+            }
+        elif frame.get('alertType') and frame.get('alertType') not in ['', None]:
+            has_alert = True
+            alert_info = {
+                'type': frame.get('alertType'),
+                'text': frame.get('alert', 'unknown'),
+                'distance': frame.get('alertDistance', 0)
+            }
         
         if has_alert:
-            frame_durations.append(slow_duration)
+            if alert_info['type'] == 'turn':
+                turn_frames[i] = alert_info
+                print(f"🔄 Turn at frame {i}: {alert_info['text'][:60]}")
+            elif alert_info['type'] == 'landmark':
+                landmark_frames[i] = alert_info
+                print(f"📍 Landmark at frame {i}: {alert_info['text'][:60]}")
+    
+    print(f"\n📊 ALERT SUMMARY:")
+    print(f"   • Turn alerts: {len(turn_frames)} frames")
+    print(f"   • Landmark alerts: {len(landmark_frames)} frames")
+    print(f"   • Total alerts: {len(turn_frames) + len(landmark_frames)} out of {len(frames_data)}")
+    
+    if len(turn_frames) + len(landmark_frames) == 0:
+        print("⚠️ WARNING: No alerts found! Video will play at normal speed.")
+        return [base_duration] * len(frames_data)
+    
+    # ✅ Apply slowdown with priority: landmarks > turns
+    slowdown_count = 0
+    turn_slowdowns = 0
+    landmark_slowdowns = 0
+    
+    for i in range(len(frames_data)):
+        closest_landmark_distance = float('inf')
+        closest_turn_distance = float('inf')
+        
+        # Check for nearby landmarks (priority 1)
+        for offset in range(-ALERT_SLOWDOWN_FRAMES, ALERT_SLOWDOWN_FRAMES + 1):
+            check_idx = i + offset
+            if check_idx in landmark_frames:
+                distance = abs(offset)
+                closest_landmark_distance = min(closest_landmark_distance, distance)
             
-            for offset in range(1, ALERT_SLOWDOWN_FRAMES + 1):
-                if i - offset >= 0 and len(frame_durations) >= offset:
-                    frame_durations[i - offset] = slow_duration
-        else:
-            in_slowdown_range = False
-            for offset in range(1, ALERT_SLOWDOWN_FRAMES + 1):
-                if i - offset >= 0 and frames_data[i - offset].get('alert'):
-                    in_slowdown_range = True
-                    break
+            if check_idx in turn_frames:
+                distance = abs(offset)
+                closest_turn_distance = min(closest_turn_distance, distance)
+        
+        # Priority: landmarks are slower than turns
+        if closest_landmark_distance != float('inf'):
+            # Near a landmark - use EXTRA SLOW speed
+            slowdown_count += 1
+            landmark_slowdowns += 1
             
-            if in_slowdown_range:
-                frame_durations.append(slow_duration)
+            if closest_landmark_distance == 0:
+                # AT landmark - MAXIMUM slowdown
+                frame_durations.append(landmark_slow_duration)
+            elif closest_landmark_distance <= 5:
+                # VERY CLOSE - 90% of max slowdown
+                transition_factor = 0.9
+                duration = base_duration / (LANDMARK_ALERT_SPEED_MULTIPLIER * transition_factor + (1 - transition_factor))
+                frame_durations.append(duration)
+            elif closest_landmark_distance <= 10:
+                # NEAR - 70% slowdown
+                transition_factor = 0.7
+                duration = base_duration / (LANDMARK_ALERT_SPEED_MULTIPLIER * transition_factor + (1 - transition_factor))
+                frame_durations.append(duration)
+            elif closest_landmark_distance <= 20:
+                # APPROACHING - 50% slowdown
+                transition_factor = 0.5
+                duration = base_duration / (LANDMARK_ALERT_SPEED_MULTIPLIER * transition_factor + (1 - transition_factor))
+                frame_durations.append(duration)
             else:
-                frame_durations.append(base_duration)
+                # FAR APPROACH - 30% slowdown
+                transition_factor = 0.3
+                duration = base_duration / (LANDMARK_ALERT_SPEED_MULTIPLIER * transition_factor + (1 - transition_factor))
+                frame_durations.append(duration)
+                
+        elif closest_turn_distance != float('inf'):
+            # Near a turn - use regular slow speed
+            slowdown_count += 1
+            turn_slowdowns += 1
+            
+            if closest_turn_distance == 0:
+                frame_durations.append(turn_slow_duration)
+            elif closest_turn_distance <= 3:
+                transition_factor = 0.9
+                duration = base_duration / (TURN_ALERT_SPEED_MULTIPLIER * transition_factor + (1 - transition_factor))
+                frame_durations.append(duration)
+            elif closest_turn_distance <= 7:
+                transition_factor = 0.6
+                duration = base_duration / (TURN_ALERT_SPEED_MULTIPLIER * transition_factor + (1 - transition_factor))
+                frame_durations.append(duration)
+            else:
+                transition_factor = 0.3
+                duration = base_duration / (TURN_ALERT_SPEED_MULTIPLIER * transition_factor + (1 - transition_factor))
+                frame_durations.append(duration)
+        else:
+            # Normal speed
+            frame_durations.append(base_duration)
+    
+    print(f"\n✅ SLOWDOWN APPLIED:")
+    print(f"   • Total slowed frames: {slowdown_count} ({(slowdown_count/len(frames_data)*100):.1f}%)")
+    print(f"   • Landmark slowdowns: {landmark_slowdowns} frames (50x slower)")
+    print(f"   • Turn slowdowns: {turn_slowdowns} frames (20x slower)")
+    print(f"=====================================\n")
     
     return frame_durations
 
 def generate_video_with_dynamic_speed(frame_paths, frames_data, output_path, fps=30, quality="high"):
+    """Generate video with dynamic speed - MUCH slower for landmarks"""
     if not frame_paths:
         raise ValueError("No frame paths provided")
+    
+    print(f"\n🎬 ===== VIDEO GENERATION =====")
+    print(f"📊 Input frames: {len(frame_paths)}")
+    print(f"📊 Target FPS: {fps}")
+    print(f"📊 Quality: {quality}")
+    print(f"📊 Landmark speed: {LANDMARK_ALERT_SPEED_MULTIPLIER*100:.1f}% (50x slower)")
+    print(f"📊 Turn speed: {TURN_ALERT_SPEED_MULTIPLIER*100:.1f}% (20x slower)")
     
     first_frame = cv2.imread(frame_paths[0])
     if first_frame is None:
         raise ValueError(f"Could not read first frame: {frame_paths[0]}")
     
     height, width, _ = first_frame.shape
+    print(f"📊 Resolution: {width}x{height}")
     
+    # Calculate frame durations with detailed logging
     frame_durations = calculate_frame_durations(frames_data, fps)
     
     if quality == "high":
@@ -682,6 +923,7 @@ def generate_video_with_dynamic_speed(frame_paths, frames_data, output_path, fps
         codec = cv2.VideoWriter_fourcc(*c)
         out = cv2.VideoWriter(str(output_path), codec, fps, (width, height))
         if out.isOpened():
+            print(f"✅ Using codec: {c}")
             break
         else:
             out.release()
@@ -696,6 +938,10 @@ def generate_video_with_dynamic_speed(frame_paths, frames_data, output_path, fps
     total_written_frames = 0
     base_frame_duration = 1.0 / fps
     
+    print(f"\n🎬 Writing frames with variable speed...")
+    landmark_frame_count = 0
+    turn_frame_count = 0
+    
     for i, frame_path in enumerate(frame_paths):
         frame = cv2.imread(frame_path)
         if frame is None:
@@ -707,6 +953,16 @@ def generate_video_with_dynamic_speed(frame_paths, frames_data, output_path, fps
         target_duration = frame_durations[i] if i < len(frame_durations) else base_frame_duration
         repeat_count = max(1, int(round(target_duration / base_frame_duration)))
         
+        # Track slowdowns
+        if repeat_count > 30:  # Landmark threshold
+            landmark_frame_count += 1
+            if landmark_frame_count % 5 == 0:
+                print(f"   📍 Landmark frame {i}: Repeating {repeat_count}x (duration: {target_duration:.2f}s)")
+        elif repeat_count > 10:  # Turn threshold
+            turn_frame_count += 1
+            if turn_frame_count % 5 == 0:
+                print(f"   🔄 Turn frame {i}: Repeating {repeat_count}x (duration: {target_duration:.2f}s)")
+        
         for _ in range(repeat_count):
             out.write(frame)
             total_written_frames += 1
@@ -714,6 +970,14 @@ def generate_video_with_dynamic_speed(frame_paths, frames_data, output_path, fps
     out.release()
     
     actual_duration = total_written_frames / fps
+    
+    print(f"\n✅ VIDEO COMPLETE:")
+    print(f"   • Written frames: {total_written_frames}")
+    print(f"   • Duration: {actual_duration:.2f} seconds")
+    print(f"   • Landmark frames processed: {landmark_frame_count}")
+    print(f"   • Turn frames processed: {turn_frame_count}")
+    print(f"   • File: {output_path}")
+    print(f"=====================================\n")
     
     return {
         "video_path": str(output_path),
@@ -723,7 +987,8 @@ def generate_video_with_dynamic_speed(frame_paths, frames_data, output_path, fps
         "duration_seconds": actual_duration,
         "resolution": f"{width}x{height}",
         "speed_type": "dynamic",
-        "slowdown_multiplier": f"{int((1/ALERT_SPEED_MULTIPLIER)*100)}% near alerts"
+        "landmark_slowdown": f"{int((1/LANDMARK_ALERT_SPEED_MULTIPLIER))}x slower",
+        "turn_slowdown": f"{int((1/TURN_ALERT_SPEED_MULTIPLIER))}x slower"
     }
 
 # ------------------------
@@ -832,8 +1097,6 @@ def check_existing_route(request: CacheCheckRequest):
         # Get video stats
         file_size_mb = video_path.stat().st_size / (1024 * 1024)
         
-        print(f"✅ Cache HIT: Found route {route_id} with video {video_path.name}")
-        
         return {
             "exists": True,
             "video_available": True,
@@ -880,10 +1143,11 @@ def check_video_exists(route_id: str, filename: str):
 # ------------------------
 @app.post("/generate_frames")
 def generate_frames(route: RouteRequest):
-    """✅ Generate frames with alert metadata ONLY (no overlays yet)"""
+    """✅ Generate frames with alert metadata using NEW Places API"""
     route_id = f"{safe_name(route.start)}_{safe_name(route.end)}"
 
-    print(f"🚀 Generating frames - METADATA ONLY (no overlays yet)")
+    print(f"🚀 Generating frames - Using NEW Places API")
+    print(f"🔑 API Key status: {'SET' if GOOGLE_MAPS_API_KEY else 'MISSING'}")
 
     directions_url = (
         "https://maps.googleapis.com/maps/api/directions/json"
@@ -897,12 +1161,12 @@ def generate_frames(route: RouteRequest):
     directions_data = resp
     steps = resp["routes"][0]["overview_polyline"]["points"]
     latlons = polyline.decode(steps)
-    points = interpolate_points(latlons, step_m=7)
+    points = interpolate_points(latlons, step_m=3)
 
     route_dir = FRAMES_DIR / route_id
     route_dir.mkdir(parents=True, exist_ok=True)
 
-    # ✅ NEW: Build points_with_headings FIRST (for turn_index mapping)
+    # ✅ Build points_with_headings FIRST
     points_with_headings = []
     for idx in range(len(points)-1):
         lat, lon = points[idx]
@@ -915,13 +1179,12 @@ def generate_frames(route: RouteRequest):
             'idx': idx
         })
     
-    # ✅ CHANGE A: Extract Google turns WITH turn_index
+    # ✅ Extract Google turns WITH turn_index
     google_turns = []
     if route.enable_alerts:
         for leg in directions_data['routes'][0]['legs']:
             for step in leg['steps']:
                 if 'maneuver' in step:
-                    # ✅ Map turn to closest route frame
                     idx = find_closest_point_index(
                         step['start_location']['lat'],
                         step['start_location']['lng'],
@@ -935,7 +1198,7 @@ def generate_frames(route: RouteRequest):
                         'end_location': step['end_location'],
                         'distance': step['distance']['value'],
                         'duration': step['duration']['value'],
-                        'turn_index': idx,  # ✅ NEW: Route position
+                        'turn_index': idx,
                         'source': 'google'
                     })
     
@@ -950,10 +1213,10 @@ def generate_frames(route: RouteRequest):
     
     all_turns = merge_turns(google_turns, detected_turns) if route.enable_alerts else []
     
-    print(f"📍 Google: {len(google_turns)} turns, Detected: {len(detected_turns)} turns, Total: {len(all_turns)} turns")
     
     frames = []
     previous_alerts = set()
+    landmark_history = {}
     total_landmarks_detected = 0
     alert_count = 0
     
@@ -966,9 +1229,8 @@ def generate_frames(route: RouteRequest):
         
         alert_data = None
         if route.enable_alerts:
-            # ✅ CHANGE B: Pass frame_index to skip passed turns
-            frame_alerts, previous_alerts = generate_frame_alerts(
-                lat, lon, all_turns, previous_alerts, frame_index=idx
+            frame_alerts, previous_alerts, landmark_history = generate_frame_alerts(
+                lat, lon, all_turns, previous_alerts, frame_index=idx, landmark_history=landmark_history
             )
             
             if frame_alerts:
@@ -989,13 +1251,10 @@ def generate_frames(route: RouteRequest):
             
             if alert_data:
                 frame_dict.update(alert_data)
-                print(f"📌 Frame {idx+1}: Alert metadata stored - {alert_data['alert']}")
             
             frames.append(frame_dict)
 
     vo_headings = compute_vo_headings(frames) if len(frames) > 1 else []
-    
-    print(f"✅ Generated {len(frames)} frames with {alert_count} alert metadata entries")
 
     return {
         "route_id": route_id,
@@ -1059,7 +1318,6 @@ def regenerate_frames(req: RegenerateReq):
             if success:
                 frame.filename = str(new_filepath)
                 regenerated_count += 1
-                print(f"✅ Regenerated frame {idx+1} with smoothed heading")
         
         updated_frames.append(frame)
 
@@ -1104,7 +1362,7 @@ def interpolate_frames(req: InterpolateReq):
             req.interpolation_factor
         )
         
-        # ✅ APPLY OVERLAYS TO ALL FINAL FRAMES (not just interpolated)
+        # ✅ APPLY OVERLAYS TO ALL FINAL FRAMES
         overlays_applied = 0
         print(f"🎨 Starting overlay application on {len(combined_frames_data)} final frames...")
         
@@ -1119,13 +1377,11 @@ def interpolate_frames(req: InterpolateReq):
                 }
                 
                 frame_path = frame_data['filename']
-                print(f"🎨 Applying overlay to frame {i+1}/{len(combined_frames_data)}: {frame_path}")
                 
                 if add_visual_overlay_to_frame(frame_path, alert_data):
                     overlays_applied += 1
-                    print(f"✅ Overlay {overlays_applied} applied: {alert_data['alert']}")
-                else:
-                    print(f"❌ Failed to apply overlay to {frame_path}")
+                    if alert_data.get('alertType') == 'landmark':
+                        print(f"🎨 Overlay {overlays_applied} (LANDMARK): {alert_data['alert']}")
         
         # ✅ SAVE frames_data.json with all metadata
         frames_data_path = interpolation_dir / "frames_data.json"
@@ -1135,8 +1391,10 @@ def interpolate_frames(req: InterpolateReq):
         
         updated_frames = [Frame(**frame_data) for frame_data in combined_frames_data]
         
+        landmark_overlays = sum(1 for f in combined_frames_data if f.get('alertType') == 'landmark')
+        
         print(f"✅ Interpolation complete")
-        print(f"🎨 Applied {overlays_applied} visual overlays to FINAL frames")
+        print(f"🎨 Applied {overlays_applied} visual overlays ({landmark_overlays} landmarks)")
         
         return {
             "route_id": req.route_id,
@@ -1145,6 +1403,7 @@ def interpolate_frames(req: InterpolateReq):
             "original_count": len(valid_frames),
             "total_count": len(updated_frames),
             "overlays_applied": overlays_applied,
+            "landmark_overlays": landmark_overlays,
             "success": True
         }
         
@@ -1157,7 +1416,8 @@ def interpolate_frames(req: InterpolateReq):
 @app.post("/process_complete_pipeline")
 def process_complete_pipeline(request: CompleteProcessRequest):
     try:
-        print("🚀 Starting complete pipeline")
+        print("🚀 Starting complete pipeline with NEW Places API")
+        print(f"🔑 Google Maps API Key: {'SET ✅' if GOOGLE_MAPS_API_KEY else 'MISSING ❌'}")
         
         route_request = RouteRequest(start=request.start, end=request.end, enable_alerts=request.enable_alerts)
         gen_result = generate_frames(route_request)
@@ -1198,7 +1458,8 @@ def process_complete_pipeline(request: CompleteProcessRequest):
                 "regenerated_frames": regen_result.get("regenerated_count", 0),
                 "interpolated_frames": interp_result.get("interpolated_count", 0),
                 "total_final_frames": interp_result.get("total_count", 0),
-                "overlays_applied": interp_result.get("overlays_applied", 0)
+                "overlays_applied": interp_result.get("overlays_applied", 0),
+                "landmark_overlays": interp_result.get("landmark_overlays", 0)
             },
             "navigation_stats": gen_result.get("navigation_stats", {})
         })
@@ -1244,7 +1505,14 @@ def generate_video(req: VideoGenerateReq):
                             with open(json_file, 'r') as f:
                                 frames_data = json.load(f)
                             print(f"📄 Loaded frames_data.json with {len(frames_data)} entries")
+                            
+                            # ✅ DEBUG: Check alert presence
+                            alerts_count = sum(1 for f in frames_data if f.get('alert'))
+                            landmark_count = sum(1 for f in frames_data if f.get('alertType') == 'landmark')
+                            turn_count = sum(1 for f in frames_data if f.get('alertType') == 'turn')
+                            print(f"🚨 DEBUG: Found {alerts_count} frames with alerts ({landmark_count} landmarks, {turn_count} turns)")
                         else:
+                            print(f"⚠️ WARNING: frames_data.json not found, creating empty alert data")
                             frames_data = [{"alert": None} for _ in frame_paths]
                         break
                 if frame_paths:

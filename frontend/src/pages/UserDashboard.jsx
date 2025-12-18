@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useRef } from "react";
 import { getAuth, onAuthStateChanged } from "firebase/auth";
 import { MapPin, Route, Video, Play, Download, Clock, FileVideo, Camera, Navigation, Zap, Map, ExternalLink, AlertTriangle, Bell, TrendingUp, Navigation2, School, Train, Building2, Hospital } from "lucide-react";
@@ -17,12 +18,12 @@ export default function Dashboard() {
   const [mapImageUrl, setMapImageUrl] = useState(null);
   const [distance, setDistance] = useState(null);
   
-  // Video generation states
+  // Video generation states - DEFAULT 15 FPS
   const [videoLoading, setVideoLoading] = useState(false);
   const [videoStatus, setVideoStatus] = useState("");
   const [videoInfo, setVideoInfo] = useState(null);
   const [videoSettings, setVideoSettings] = useState({
-    fps: 30,
+    fps: 5,
     quality: "high",
     includeInterpolated: true
   });
@@ -777,18 +778,53 @@ export default function Dashboard() {
       </div>
 
       <header className="relative z-10 bg-gradient-to-r from-gray-900/90 to-gray-800/90 backdrop-blur-xl text-white p-6 shadow-2xl border-b border-gray-700">
-        <div className="flex items-center gap-4 mb-2">
-          <div className="p-3 bg-lime-400/20 rounded-full">
-            <Navigation className="text-lime-400 text-2xl animate-pulse" />
-          </div>
-          <div>
-            <h1 className="text-3xl font-bold text-lime-400">RouteVision Dashboard</h1>
-            <p className="text-gray-300 mt-1">
-              Enhanced Navigation Alerts: Turns at 120m, Landmarks at 200m (Schools, Stations, Malls & More) | Smart Video Caching ⚡
-            </p>
-          </div>
-        </div>
-      </header>
+  <div className="flex flex-col gap-4">
+    
+    <div className="flex items-center gap-4">
+      <div className="p-3 bg-lime-400/20 rounded-full">
+        <Navigation className="text-lime-400 text-2xl animate-pulse" />
+      </div>
+
+      <div>
+        <h1 className="text-3xl font-bold text-lime-400">
+          RouteVision Dashboard
+        </h1>
+        <p className="text-gray-300 mt-1">
+          Enhanced Navigation Alerts: Turns at 120m, Landmarks at 200m
+        </p>
+      </div>
+    </div>
+
+    {/* Pipeline Flow */}
+    <div className="flex flex-wrap items-center gap-3 text-sm text-gray-300">
+      <span className="px-3 py-1 rounded-full bg-gray-700/60 border border-gray-600">
+        Generate
+      </span>
+      <span className="text-lime-400">→</span>
+
+      <span className="px-3 py-1 rounded-full bg-gray-700/60 border border-gray-600">
+        Smooth
+      </span>
+      <span className="text-lime-400">→</span>
+
+      <span className="px-3 py-1 rounded-full bg-gray-700/60 border border-gray-600">
+        Regenerate
+      </span>
+      <span className="text-lime-400">→</span>
+
+      <span className="px-3 py-1 rounded-full bg-gray-700/60 border border-gray-600">
+        Interpolate
+      </span>
+      <span className="text-lime-400">→</span>
+
+      <span className="px-3 py-1 rounded-full bg-lime-400/20 text-lime-300 border border-lime-400/40 font-medium">
+        Video
+      </span>
+    </div>
+
+  </div>
+</header>
+
 
       <main className="relative z-10 p-8 max-w-7xl mx-auto">
         <div className="flex items-center gap-3 mb-6">
@@ -853,8 +889,6 @@ export default function Dashboard() {
               >
                 <option value={1}>1 (2x frames)</option>
                 <option value={2}>2 (3x frames)</option>
-                <option value={3}>3 (4x frames)</option>
-                <option value={4}>4 (5x frames)</option>
               </select>
             </div>
 
@@ -869,14 +903,9 @@ export default function Dashboard() {
                 className="w-full p-3 bg-gray-700/70 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-lime-400 focus:border-transparent transition-all duration-300"
                 disabled={loading || videoLoading}
               >
-                <option value={1}>1 FPS</option>
-                <option value={2}>2 FPS</option>
-                <option value={5}>5 FPS</option>
-                <option value={10}>10 FPS</option>
+                <option value={15}>5 FPS</option>
                 <option value={15}>15 FPS</option>
-                <option value={24}>24 FPS</option>
                 <option value={30}>30 FPS</option>
-                <option value={60}>60 FPS</option>
               </select>
             </div>
 
@@ -1320,7 +1349,7 @@ export default function Dashboard() {
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-300">FPS:</span>
-                      <span className="text-white">{videoInfo.fps || videoSettings.fps}</span>
+                      <span className="text-white font-semibold">{videoInfo.fps || videoSettings.fps} FPS</span>
                     </div>
                     {videoInfo.video_stats?.speed_type === 'dynamic' && (
                       <div className="flex justify-between">
