@@ -170,7 +170,7 @@ def normalize_angle_difference(angle1, angle2):
         diff += 360
     return abs(diff)
 
-def interpolate_points(latlons, step_m=3):
+def interpolate_points(latlons, step_m=5):
     points = []
     for i in range(len(latlons)-1):
         lat1, lon1 = latlons[i]
@@ -1161,7 +1161,7 @@ def generate_frames(route: RouteRequest):
     directions_data = resp
     steps = resp["routes"][0]["overview_polyline"]["points"]
     latlons = polyline.decode(steps)
-    points = interpolate_points(latlons, step_m=3)
+    points = interpolate_points(latlons, step_m=5)
 
     route_dir = FRAMES_DIR / route_id
     route_dir.mkdir(parents=True, exist_ok=True)
