@@ -10,10 +10,17 @@ import {
   generateVideo,
   checkExistingRoute,
   getRouteAnalytics,
-  getRouteNavigationAlerts
+  getRouteNavigationAlerts,
+  getDistancePreview,          // ✅ NEW: import distance preview
 } from "../controllers/routeController.js";
 
 const router = express.Router();
+
+// ==========================================
+// ✅ NEW: DISTANCE PREVIEW (server-side to avoid CORS)
+// Called as soon as both locations are selected, before route generation
+// ==========================================
+router.post("/distance-preview", getDistancePreview);
 
 // ==========================================
 // CACHE CHECKING

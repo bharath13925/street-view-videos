@@ -240,6 +240,40 @@ def fetch_street_view_image(lat, lon, heading, filename):
         return False
 
 # ------------------------
+# ✅ NEW: Get actual road distance from Google Directions API
+# ------------------------
+def get_route_distance_and_info(directions_data: dict) -> dict:
+    """
+    Extract accurate road distance, duration, and route polyline from
+    Google Directions API response. Returns road distance in meters.
+    """
+    try:
+        if not directions_data or 'routes' not in directions_data:
+            return {"distance_m": 0, "distance_text": "Unknown", "duration_text": "Unknown", "polyline_points": []}
+
+        route = directions_data['routes'][0]
+        leg = route['legs'][0]  # First leg (origin to destination)
+
+        distance_m = leg['distance']['value']       # meters (int)
+        distance_text = leg['distance']['text']     # e.g. "5.7 km"
+        duration_text = leg['duration']['text']     # e.g. "9 mins"
+
+        # Decode the overview polyline for the full route path
+        encoded_polyline = route['overview_polyline']['points']
+        decoded_points = polyline.decode(encoded_polyline)
+
+        return {
+            "distance_m": distance_m,
+            "distance_text": distance_text,
+            "duration_text": duration_text,
+            "polyline_points": decoded_points,  # list of (lat, lon) tuples
+        }
+    except Exception as e:
+        print(f"❌ Error extracting route info: {e}")
+        return {"distance_m": 0, "distance_text": "Unknown", "duration_text": "Unknown", "polyline_points": []}
+
+
+# ------------------------
 # ✅ Helper to find closest point index
 # ------------------------
 def find_closest_point_index(lat, lon, points_with_headings):
@@ -338,7 +372,6 @@ def draw_landmark_pin(image_path: str, landmark_name: str, distance: int, catego
                 font_medium = ImageFont.load_default()
                 font_small = ImageFont.load_default()
         
-        # ✅ INCREASED box height for multi-line text
         box_height = 130
         box_y = height - box_height
         overlay = Image.new('RGBA', img.size, (0, 0, 0, 0))
@@ -374,10 +407,8 @@ def draw_landmark_pin(image_path: str, landmark_name: str, distance: int, catego
         category_label = category_text_map.get(category.upper().replace(' ', '_'), category)
         draw.text((20, box_y + 10), category_label, fill=(100, 200, 255), font=font_large)
         
-        # ✅ IMPROVED: Smart text wrapping for long landmark names
-        max_width = width - 160  # Leave space for distance on right
-        
-        # Function to wrap text
+        max_width = width - 160
+
         def wrap_text(text, font, max_width):
             words = text.split()
             lines = []
@@ -398,7 +429,6 @@ def draw_landmark_pin(image_path: str, landmark_name: str, distance: int, catego
             if current_line:
                 lines.append(' '.join(current_line))
             
-            # Limit to 2 lines maximum
             if len(lines) > 2:
                 second_line = lines[1]
                 if len(second_line) > 25:
@@ -409,12 +439,10 @@ def draw_landmark_pin(image_path: str, landmark_name: str, distance: int, catego
         
         landmark_lines = wrap_text(landmark_name.upper(), font_medium, max_width)
         
-        # Draw landmark name (with line wrapping)
         y_offset = box_y + 50
         for i, line in enumerate(landmark_lines):
             draw.text((20, y_offset + (i * 28)), line, fill=(255, 255, 255), font=font_medium)
         
-        # Draw distance on the right
         distance_text = f"{distance}M"
         draw.text((width - 110, box_y + 50), distance_text, fill=(100, 200, 255), font=font_large)
         
@@ -598,16 +626,13 @@ def get_nearby_landmarks(lat, lon, radius=LANDMARK_SEARCH_RADIUS):
     global LAST_PLACES_API_CALL
     
     try:
-        # ✅ Rate limiting
         current_time = time.time()
         time_since_last_call = current_time - LAST_PLACES_API_CALL
         if time_since_last_call < PLACES_API_DELAY:
             time.sleep(PLACES_API_DELAY - time_since_last_call)
         
-        # ✅ NEW PLACES API ENDPOINT
         places_url = "https://places.googleapis.com/v1/places:searchNearby"
         
-        # ✅ NEW API uses POST with JSON body
         headers = {
             "Content-Type": "application/json",
             "X-Goog-Api-Key": GOOGLE_MAPS_API_KEY,
@@ -642,11 +667,9 @@ def get_nearby_landmarks(lat, lon, radius=LANDMARK_SEARCH_RADIUS):
         filtered_count = 0
         
         for place in results:
-            # ✅ NEW API format differences
             place_name = place.get('displayName', {}).get('text', 'Unknown')
             place_types = place.get('types', [])
             
-            # ✅ Filter locally using important landmark list
             if not is_important_landmark(place_types):
                 filtered_count += 1
                 continue
@@ -668,7 +691,6 @@ def get_nearby_landmarks(lat, lon, radius=LANDMARK_SEARCH_RADIUS):
                 }
             })
         
-        # Sort by distance first, then rating
         landmarks.sort(key=lambda x: (x['distance'], -x['rating']))
         return landmarks[:3]
     
@@ -692,9 +714,8 @@ def generate_frame_alerts(lat, lon, turns, previous_alerts=None, frame_index=0, 
         previous_alerts = set()
     
     if landmark_history is None:
-        landmark_history = {}  # Store {landmark_name: last_distance}
+        landmark_history = {}
     
-    # ✅ Only alert for turns AHEAD of current frame
     for turn in turns:
         if 'turn_index' in turn and frame_index >= turn['turn_index']:
             continue
@@ -715,7 +736,6 @@ def generate_frame_alerts(lat, lon, turns, previous_alerts=None, frame_index=0, 
                 })
                 previous_alerts.add(key)
     
-    # 🔥 CHECK LANDMARKS MORE FREQUENTLY (every 2 frames)
     if frame_index % 2 == 0:
         landmarks = get_nearby_landmarks(lat, lon)
         
@@ -723,19 +743,14 @@ def generate_frame_alerts(lat, lon, turns, previous_alerts=None, frame_index=0, 
             landmark_id = lm['name']
             current_distance = lm['distance']
             
-            # ✅ Check if we've seen this landmark before
             if landmark_id in landmark_history:
                 last_distance = landmark_history[landmark_id]
-                
-                # ✅ If distance is INCREASING, we've passed it - skip!
-                if current_distance > last_distance + 5:  # 5m tolerance for GPS jitter
+                if current_distance > last_distance + 5:
                     continue
             
-            # ✅ Update history with current distance
             landmark_history[landmark_id] = current_distance
             
             if current_distance <= LANDMARK_ALERT_DISTANCE:
-                # ✅ Use landmark name + rough distance bucket for deduplication
                 key = f"landmark_{landmark_id}_{int(current_distance/50)*50}"
                 
                 if key not in previous_alerts:
@@ -753,14 +768,14 @@ def generate_frame_alerts(lat, lon, turns, previous_alerts=None, frame_index=0, 
     return alerts, previous_alerts, landmark_history
 
 # ------------------------
-# ✅ IMPROVED DYNAMIC SPEED VIDEO GENERATION - SEPARATE SPEEDS FOR TURNS AND LANDMARKS
+# ✅ IMPROVED DYNAMIC SPEED VIDEO GENERATION
 # ------------------------
 def calculate_frame_durations(frames_data: List[Dict], base_fps: int) -> List[float]:
-    """✅ IMPROVED: Different slowdown speeds for turns vs landmarks - landmarks are MUCH SLOWER"""
+    """✅ IMPROVED: Different slowdown speeds for turns vs landmarks"""
     frame_durations = []
     base_duration = 1.0 / base_fps
-    turn_slow_duration = base_duration / TURN_ALERT_SPEED_MULTIPLIER  # 20x slower for turns
-    landmark_slow_duration = base_duration / LANDMARK_ALERT_SPEED_MULTIPLIER  # 50x slower for landmarks!
+    turn_slow_duration = base_duration / TURN_ALERT_SPEED_MULTIPLIER
+    landmark_slow_duration = base_duration / LANDMARK_ALERT_SPEED_MULTIPLIER
     
     print(f"\n🎬 ===== FRAME DURATION CALCULATION =====")
     print(f"📊 Base FPS: {base_fps}, Base duration: {base_duration:.4f}s")
@@ -768,7 +783,6 @@ def calculate_frame_durations(frames_data: List[Dict], base_fps: int) -> List[fl
     print(f"📊 Landmark slowdown: {landmark_slow_duration:.4f}s (50x SLOWER!)")
     print(f"📊 Total frames to process: {len(frames_data)}")
     
-    # ✅ Separate turn and landmark frames
     turn_frames = {}
     landmark_frames = {}
     
@@ -794,21 +808,17 @@ def calculate_frame_durations(frames_data: List[Dict], base_fps: int) -> List[fl
         if has_alert:
             if alert_info['type'] == 'turn':
                 turn_frames[i] = alert_info
-                print(f"🔄 Turn at frame {i}: {alert_info['text'][:60]}")
             elif alert_info['type'] == 'landmark':
                 landmark_frames[i] = alert_info
-                print(f"📍 Landmark at frame {i}: {alert_info['text'][:60]}")
     
     print(f"\n📊 ALERT SUMMARY:")
     print(f"   • Turn alerts: {len(turn_frames)} frames")
     print(f"   • Landmark alerts: {len(landmark_frames)} frames")
-    print(f"   • Total alerts: {len(turn_frames) + len(landmark_frames)} out of {len(frames_data)}")
     
     if len(turn_frames) + len(landmark_frames) == 0:
         print("⚠️ WARNING: No alerts found! Video will play at normal speed.")
         return [base_duration] * len(frames_data)
     
-    # ✅ Apply slowdown with priority: landmarks > turns
     slowdown_count = 0
     turn_slowdowns = 0
     landmark_slowdowns = 0
@@ -817,7 +827,6 @@ def calculate_frame_durations(frames_data: List[Dict], base_fps: int) -> List[fl
         closest_landmark_distance = float('inf')
         closest_turn_distance = float('inf')
         
-        # Check for nearby landmarks (priority 1)
         for offset in range(-ALERT_SLOWDOWN_FRAMES, ALERT_SLOWDOWN_FRAMES + 1):
             check_idx = i + offset
             if check_idx in landmark_frames:
@@ -828,38 +837,30 @@ def calculate_frame_durations(frames_data: List[Dict], base_fps: int) -> List[fl
                 distance = abs(offset)
                 closest_turn_distance = min(closest_turn_distance, distance)
         
-        # Priority: landmarks are slower than turns
         if closest_landmark_distance != float('inf'):
-            # Near a landmark - use EXTRA SLOW speed
             slowdown_count += 1
             landmark_slowdowns += 1
             
             if closest_landmark_distance == 0:
-                # AT landmark - MAXIMUM slowdown
                 frame_durations.append(landmark_slow_duration)
             elif closest_landmark_distance <= 5:
-                # VERY CLOSE - 90% of max slowdown
                 transition_factor = 0.9
                 duration = base_duration / (LANDMARK_ALERT_SPEED_MULTIPLIER * transition_factor + (1 - transition_factor))
                 frame_durations.append(duration)
             elif closest_landmark_distance <= 10:
-                # NEAR - 70% slowdown
                 transition_factor = 0.7
                 duration = base_duration / (LANDMARK_ALERT_SPEED_MULTIPLIER * transition_factor + (1 - transition_factor))
                 frame_durations.append(duration)
             elif closest_landmark_distance <= 20:
-                # APPROACHING - 50% slowdown
                 transition_factor = 0.5
                 duration = base_duration / (LANDMARK_ALERT_SPEED_MULTIPLIER * transition_factor + (1 - transition_factor))
                 frame_durations.append(duration)
             else:
-                # FAR APPROACH - 30% slowdown
                 transition_factor = 0.3
                 duration = base_duration / (LANDMARK_ALERT_SPEED_MULTIPLIER * transition_factor + (1 - transition_factor))
                 frame_durations.append(duration)
                 
         elif closest_turn_distance != float('inf'):
-            # Near a turn - use regular slow speed
             slowdown_count += 1
             turn_slowdowns += 1
             
@@ -878,11 +879,10 @@ def calculate_frame_durations(frames_data: List[Dict], base_fps: int) -> List[fl
                 duration = base_duration / (TURN_ALERT_SPEED_MULTIPLIER * transition_factor + (1 - transition_factor))
                 frame_durations.append(duration)
         else:
-            # Normal speed
             frame_durations.append(base_duration)
     
     print(f"\n✅ SLOWDOWN APPLIED:")
-    print(f"   • Total slowed frames: {slowdown_count} ({(slowdown_count/len(frames_data)*100):.1f}%)")
+    print(f"   • Total slowed frames: {slowdown_count}")
     print(f"   • Landmark slowdowns: {landmark_slowdowns} frames (50x slower)")
     print(f"   • Turn slowdowns: {turn_slowdowns} frames (20x slower)")
     print(f"=====================================\n")
@@ -890,25 +890,15 @@ def calculate_frame_durations(frames_data: List[Dict], base_fps: int) -> List[fl
     return frame_durations
 
 def generate_video_with_dynamic_speed(frame_paths, frames_data, output_path, fps=30, quality="high"):
-    """Generate video with dynamic speed - MUCH slower for landmarks"""
+    """Generate video with dynamic speed"""
     if not frame_paths:
         raise ValueError("No frame paths provided")
-    
-    print(f"\n🎬 ===== VIDEO GENERATION =====")
-    print(f"📊 Input frames: {len(frame_paths)}")
-    print(f"📊 Target FPS: {fps}")
-    print(f"📊 Quality: {quality}")
-    print(f"📊 Landmark speed: {LANDMARK_ALERT_SPEED_MULTIPLIER*100:.1f}% (50x slower)")
-    print(f"📊 Turn speed: {TURN_ALERT_SPEED_MULTIPLIER*100:.1f}% (20x slower)")
     
     first_frame = cv2.imread(frame_paths[0])
     if first_frame is None:
         raise ValueError(f"Could not read first frame: {frame_paths[0]}")
     
     height, width, _ = first_frame.shape
-    print(f"📊 Resolution: {width}x{height}")
-    
-    # Calculate frame durations with detailed logging
     frame_durations = calculate_frame_durations(frames_data, fps)
     
     if quality == "high":
@@ -923,7 +913,6 @@ def generate_video_with_dynamic_speed(frame_paths, frames_data, output_path, fps
         codec = cv2.VideoWriter_fourcc(*c)
         out = cv2.VideoWriter(str(output_path), codec, fps, (width, height))
         if out.isOpened():
-            print(f"✅ Using codec: {c}")
             break
         else:
             out.release()
@@ -938,10 +927,6 @@ def generate_video_with_dynamic_speed(frame_paths, frames_data, output_path, fps
     total_written_frames = 0
     base_frame_duration = 1.0 / fps
     
-    print(f"\n🎬 Writing frames with variable speed...")
-    landmark_frame_count = 0
-    turn_frame_count = 0
-    
     for i, frame_path in enumerate(frame_paths):
         frame = cv2.imread(frame_path)
         if frame is None:
@@ -953,16 +938,6 @@ def generate_video_with_dynamic_speed(frame_paths, frames_data, output_path, fps
         target_duration = frame_durations[i] if i < len(frame_durations) else base_frame_duration
         repeat_count = max(1, int(round(target_duration / base_frame_duration)))
         
-        # Track slowdowns
-        if repeat_count > 30:  # Landmark threshold
-            landmark_frame_count += 1
-            if landmark_frame_count % 5 == 0:
-                print(f"   📍 Landmark frame {i}: Repeating {repeat_count}x (duration: {target_duration:.2f}s)")
-        elif repeat_count > 10:  # Turn threshold
-            turn_frame_count += 1
-            if turn_frame_count % 5 == 0:
-                print(f"   🔄 Turn frame {i}: Repeating {repeat_count}x (duration: {target_duration:.2f}s)")
-        
         for _ in range(repeat_count):
             out.write(frame)
             total_written_frames += 1
@@ -970,14 +945,6 @@ def generate_video_with_dynamic_speed(frame_paths, frames_data, output_path, fps
     out.release()
     
     actual_duration = total_written_frames / fps
-    
-    print(f"\n✅ VIDEO COMPLETE:")
-    print(f"   • Written frames: {total_written_frames}")
-    print(f"   • Duration: {actual_duration:.2f} seconds")
-    print(f"   • Landmark frames processed: {landmark_frame_count}")
-    print(f"   • Turn frames processed: {turn_frame_count}")
-    print(f"   • File: {output_path}")
-    print(f"=====================================\n")
     
     return {
         "video_path": str(output_path),
@@ -1054,21 +1021,17 @@ def check_existing_route(request: CacheCheckRequest):
         if not route_dir:
             return {"exists": False, "video_available": False}
         
-        # Check for interpolated frames
         interpolated_dir = route_dir / "smoothed" / "interpolated"
         if not interpolated_dir.exists():
             return {"exists": False, "video_available": False}
         
-        # Check for frames_data.json with alerts
         frames_data_path = interpolated_dir / "frames_data.json"
         if not frames_data_path.exists():
             return {"exists": False, "video_available": False}
         
-        # Load frames data
         with open(frames_data_path, 'r') as f:
             frames_data = json.load(f)
         
-        # Check for video
         videos_dir = route_dir / "videos"
         if not videos_dir.exists():
             return {
@@ -1078,12 +1041,10 @@ def check_existing_route(request: CacheCheckRequest):
                 "frames": frames_data
             }
         
-        # Find matching video
         expected_filename = f"{safe_name(route_id)[:30]}_dynamic_{request.video_fps}fps.mp4"
         video_path = videos_dir / expected_filename
         
         if not video_path.exists():
-            # Try to find any video
             videos = list(videos_dir.glob("*.mp4"))
             if not videos:
                 return {
@@ -1094,7 +1055,6 @@ def check_existing_route(request: CacheCheckRequest):
                 }
             video_path = videos[0]
         
-        # Get video stats
         file_size_mb = video_path.stat().st_size / (1024 * 1024)
         
         return {
@@ -1143,7 +1103,10 @@ def check_video_exists(route_id: str, filename: str):
 # ------------------------
 @app.post("/generate_frames")
 def generate_frames(route: RouteRequest):
-    """✅ Generate frames with alert metadata using NEW Places API"""
+    """
+    ✅ Generate frames with alert metadata.
+    Now returns accurate road distance/duration from Google Directions API.
+    """
     route_id = f"{safe_name(route.start)}_{safe_name(route.end)}"
 
     print(f"🚀 Generating frames - Using NEW Places API")
@@ -1159,6 +1122,15 @@ def generate_frames(route: RouteRequest):
         return {"error": resp.get("status"), "message": resp.get("error_message", "")}
 
     directions_data = resp
+
+    # ✅ Extract accurate road distance & duration from Directions API
+    route_info = get_route_distance_and_info(directions_data)
+    road_distance_m = route_info["distance_m"]
+    road_distance_text = route_info["distance_text"]
+    road_duration_text = route_info["duration_text"]
+
+    print(f"✅ Road distance: {road_distance_text} ({road_distance_m}m), Duration: {road_duration_text}")
+
     steps = resp["routes"][0]["overview_polyline"]["points"]
     latlons = polyline.decode(steps)
     points = interpolate_points(latlons, step_m=5)
@@ -1166,7 +1138,6 @@ def generate_frames(route: RouteRequest):
     route_dir = FRAMES_DIR / route_id
     route_dir.mkdir(parents=True, exist_ok=True)
 
-    # ✅ Build points_with_headings FIRST
     points_with_headings = []
     for idx in range(len(points)-1):
         lat, lon = points[idx]
@@ -1179,7 +1150,6 @@ def generate_frames(route: RouteRequest):
             'idx': idx
         })
     
-    # ✅ Extract Google turns WITH turn_index
     google_turns = []
     if route.enable_alerts:
         for leg in directions_data['routes'][0]['legs']:
@@ -1204,7 +1174,6 @@ def generate_frames(route: RouteRequest):
     
     detected_turns = detect_all_turns_from_path(points_with_headings) if route.enable_alerts else []
     
-    # Add turn_index to detected turns
     for turn in detected_turns:
         turn_lat = turn['start_location']['lat']
         turn_lon = turn['start_location']['lng']
@@ -1212,7 +1181,6 @@ def generate_frames(route: RouteRequest):
         turn['turn_index'] = idx
     
     all_turns = merge_turns(google_turns, detected_turns) if route.enable_alerts else []
-    
     
     frames = []
     previous_alerts = set()
@@ -1261,6 +1229,11 @@ def generate_frames(route: RouteRequest):
         "frames": frames,
         "vo_headings": vo_headings,
         "directions_data": directions_data,
+        # ✅ Return accurate road distance info
+        "road_distance_m": road_distance_m,
+        "road_distance_text": road_distance_text,
+        "road_duration_text": road_duration_text,
+        "route_polyline": route_info["polyline_points"],
         "navigation_stats": {
             "total_turns": len(all_turns),
             "google_turns": len(google_turns),
@@ -1362,7 +1335,6 @@ def interpolate_frames(req: InterpolateReq):
             req.interpolation_factor
         )
         
-        # ✅ APPLY OVERLAYS TO ALL FINAL FRAMES
         overlays_applied = 0
         print(f"🎨 Starting overlay application on {len(combined_frames_data)} final frames...")
         
@@ -1380,21 +1352,13 @@ def interpolate_frames(req: InterpolateReq):
                 
                 if add_visual_overlay_to_frame(frame_path, alert_data):
                     overlays_applied += 1
-                    if alert_data.get('alertType') == 'landmark':
-                        print(f"🎨 Overlay {overlays_applied} (LANDMARK): {alert_data['alert']}")
         
-        # ✅ SAVE frames_data.json with all metadata
         frames_data_path = interpolation_dir / "frames_data.json"
         with open(frames_data_path, 'w') as f:
             json.dump(combined_frames_data, f, indent=2)
-        print(f"✅ Saved frames_data.json with {len(combined_frames_data)} frames")
         
         updated_frames = [Frame(**frame_data) for frame_data in combined_frames_data]
-        
         landmark_overlays = sum(1 for f in combined_frames_data if f.get('alertType') == 'landmark')
-        
-        print(f"✅ Interpolation complete")
-        print(f"🎨 Applied {overlays_applied} visual overlays ({landmark_overlays} landmarks)")
         
         return {
             "route_id": req.route_id,
@@ -1417,7 +1381,6 @@ def interpolate_frames(req: InterpolateReq):
 def process_complete_pipeline(request: CompleteProcessRequest):
     try:
         print("🚀 Starting complete pipeline with NEW Places API")
-        print(f"🔑 Google Maps API Key: {'SET ✅' if GOOGLE_MAPS_API_KEY else 'MISSING ❌'}")
         
         route_request = RouteRequest(start=request.start, end=request.end, enable_alerts=request.enable_alerts)
         gen_result = generate_frames(route_request)
@@ -1445,14 +1408,17 @@ def process_complete_pipeline(request: CompleteProcessRequest):
         if not interp_result.get("success", False):
             return {"error": "Interpolation failed"}
         
-        print("✅ Complete pipeline finished!")
-        
         return convert_numpy_types({
             "route_id": gen_result["route_id"],
             "pipeline_success": True,
             "final_frames": [frame.dict() for frame in interp_result["frames"]],
             "vo_headings": gen_result.get("vo_headings", []),
             "directions_data": gen_result.get("directions_data", {}),
+            # ✅ Pass accurate road distance downstream
+            "road_distance_m": gen_result.get("road_distance_m", 0),
+            "road_distance_text": gen_result.get("road_distance_text", ""),
+            "road_duration_text": gen_result.get("road_duration_text", ""),
+            "route_polyline": gen_result.get("route_polyline", []),
             "statistics": {
                 "original_frames": len(gen_result.get("frames", [])),
                 "regenerated_frames": regen_result.get("regenerated_count", 0),
@@ -1474,8 +1440,6 @@ def process_complete_pipeline(request: CompleteProcessRequest):
 def generate_video(req: VideoGenerateReq):
     """✅ Video generation - uses final interpolated frames with overlays"""
     try:
-        print(f"🎬 Generating video from final frames with overlays")
-        
         route_base_dir = FRAMES_DIR / req.route_id
         if not route_base_dir.exists():
             route_base_dir = find_route_directory(req.route_id)
@@ -1498,21 +1462,12 @@ def generate_video(req: VideoGenerateReq):
                                  key=lambda x: int(''.join(filter(str.isdigit, x.stem)) or 0))
                     if found:
                         frame_paths = [str(f) for f in found]
-                        print(f"📁 Using frames from: {frame_dir}")
                         
                         json_file = frame_dir / "frames_data.json"
                         if json_file.exists():
                             with open(json_file, 'r') as f:
                                 frames_data = json.load(f)
-                            print(f"📄 Loaded frames_data.json with {len(frames_data)} entries")
-                            
-                            # ✅ DEBUG: Check alert presence
-                            alerts_count = sum(1 for f in frames_data if f.get('alert'))
-                            landmark_count = sum(1 for f in frames_data if f.get('alertType') == 'landmark')
-                            turn_count = sum(1 for f in frames_data if f.get('alertType') == 'turn')
-                            print(f"🚨 DEBUG: Found {alerts_count} frames with alerts ({landmark_count} landmarks, {turn_count} turns)")
                         else:
-                            print(f"⚠️ WARNING: frames_data.json not found, creating empty alert data")
                             frames_data = [{"alert": None} for _ in frame_paths]
                         break
                 if frame_paths:
@@ -1534,8 +1489,6 @@ def generate_video(req: VideoGenerateReq):
         
         video_stats["file_size_mb"] = round(file_size_mb, 2)
         video_stats["video_filename"] = video_filename
-        
-        print(f"✅ Video generated: {video_path}")
         
         return convert_numpy_types({
             "route_id": req.route_id,

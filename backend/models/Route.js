@@ -39,12 +39,15 @@ const navigationMetadataSchema = new mongoose.Schema({
   totalLandmarks: Number,
   alertedFrames: Number,
   routeDuration: Number,      // seconds
-  routeDistance: Number       // meters
+  routeDistance: Number,      // meters
+  roadDistanceText: String,   // e.g. "0.5 km"
+  roadDurationText: String    // e.g. "1 min"
 });
 
 // ✅ COMPLETE Route schema
 const routeSchema = new mongoose.Schema({
-  userId: { type: String, required: true },
+  // ✅ FIX: userId is NOT required to prevent validation failure when missing
+  userId: { type: String, required: false, default: "anonymous" },
   start: { type: String, required: true },
   end: { type: String, required: true },
   pythonRouteId: { type: String, required: true },

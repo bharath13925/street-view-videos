@@ -7,6 +7,7 @@ import path from 'path';
 dotenv.config();
 
 const PYTHON_SERVICE = process.env.PYTHON_SERVICE;
+const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY;
 
 // Helper function to match Python's safe_name function
 function safeName(name) {
@@ -16,6 +17,82 @@ function safeName(name) {
 // Helper function to generate consistent route identifier
 function generateRouteIdentifier(start, end) {
   return `${safeName(start)}_${safeName(end)}`;
+}
+
+// ----------------------
+// ✅ NEW: Distance Preview Endpoint
+// Fetches road distance + duration from Google Directions API (server-side to avoid CORS)
+// ----------------------
+export const getDistancePreview = async (req, res) => {
+  try {
+    const { origin, destination } = req.body;
+
+    if (!origin || !destination) {
+      return res.status(400).json({ error: "origin and destination are required" });
+    }
+
+    const response = await axios.get(
+      "https://maps.googleapis.com/maps/api/directions/json",
+      {
+        params: {
+          origin,
+          destination,
+          key: GOOGLE_MAPS_API_KEY,
+        },
+        timeout: 10000,
+      }
+    );
+
+    if (response.data.status !== "OK") {
+      return res.status(400).json({
+        error: response.data.status,
+        message: response.data.error_message || "Directions API error",
+      });
+    }
+
+    const leg = response.data.routes[0].legs[0];
+    const encodedPolyline = response.data.routes[0].overview_polyline.points;
+
+    // ✅ Decode polyline server-side
+    const decoded = decodePolyline(encodedPolyline);
+
+    return res.json({
+      distance_text: leg.distance.text,       // e.g. "5.7 km"
+      distance_m: leg.distance.value,         // e.g. 5700
+      duration_text: leg.duration.text,       // e.g. "12 mins"
+      polyline_points: decoded,               // [[lat, lon], ...]
+    });
+  } catch (err) {
+    console.error("❌ Distance preview error:", err.message);
+    res.status(500).json({ error: "Failed to fetch distance preview" });
+  }
+};
+
+// ✅ Pure JS polyline decoder (mirrors frontend decoder)
+function decodePolyline(encoded) {
+  let index = 0, lat = 0, lng = 0;
+  const result = [];
+  while (index < encoded.length) {
+    let b, shift = 0, resultVal = 0;
+    do {
+      b = encoded.charCodeAt(index++) - 63;
+      resultVal |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    const dlat = resultVal & 1 ? ~(resultVal >> 1) : resultVal >> 1;
+    lat += dlat;
+    shift = 0;
+    resultVal = 0;
+    do {
+      b = encoded.charCodeAt(index++) - 63;
+      resultVal |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    const dlng = resultVal & 1 ? ~(resultVal >> 1) : resultVal >> 1;
+    lng += dlng;
+    result.push([lat / 1e5, lng / 1e5]);
+  }
+  return result;
 }
 
 // ----------------------
@@ -60,6 +137,10 @@ export const checkExistingRoute = async (req, res) => {
               video_stats: existingRoute.videoStats,
               video_url: `${PYTHON_SERVICE}/videos/${existingRoute.pythonRouteId}/${existingRoute.videoFilename}`
             },
+            // ✅ Pass road distance from cached route
+            road_distance_text: existingRoute.navigationMetadata?.roadDistanceText || null,
+            road_duration_text: existingRoute.navigationMetadata?.roadDurationText || null,
+            road_distance_m: existingRoute.navigationMetadata?.routeDistance || null,
             navigation_stats: {
               total_turns: existingRoute.navigationMetadata?.totalTurns || 0,
               total_alerts: existingRoute.framesData?.filter(f => f.alert)?.length || 0,
@@ -186,6 +267,12 @@ export const generateRoute = async (req, res) => {
     const frames = pyResp.data.frames || [];
     const landmarkCount = frames.filter(f => f.alertType === 'landmark').length;
 
+    // ✅ Extract road distance from Python response
+    const roadDistanceM = pyResp.data.road_distance_m || 0;
+    const roadDistanceText = pyResp.data.road_distance_text || "";
+    const roadDurationText = pyResp.data.road_duration_text || "";
+    const routePolyline = pyResp.data.route_polyline || [];
+
     const newRoute = new Route({
       userId,
       start,
@@ -199,7 +286,10 @@ export const generateRoute = async (req, res) => {
         totalLandmarks: landmarkCount,
         alertedFrames: pyResp.data.navigation_stats?.total_alerts || 0,
         routeDuration: 0,
-        routeDistance: 0
+        routeDistance: roadDistanceM,
+        // ✅ Store formatted text for easy retrieval
+        roadDistanceText,
+        roadDurationText,
       },
       alertsEnabled: enable_alerts
     });
@@ -209,6 +299,11 @@ export const generateRoute = async (req, res) => {
 
     res.json({ 
       route: savedRoute,
+      // ✅ Always include road distance in response
+      road_distance_m: roadDistanceM,
+      road_distance_text: roadDistanceText,
+      road_duration_text: roadDurationText,
+      route_polyline: routePolyline,
       navigation_stats: {
         total_turns: pyResp.data.navigation_stats?.total_turns || 0,
         total_alerts: pyResp.data.navigation_stats?.total_alerts || 0,
@@ -258,6 +353,11 @@ export const processCompletePipelineWithVideoCached = async (req, res) => {
         cached: true,
         statistics: cacheCheck.route.processingStats || {},
         video_info: cacheCheck.video_info,
+        // ✅ Pass road distance from cache
+        road_distance_m: cacheCheck.road_distance_m || cacheCheck.route.navigationMetadata?.routeDistance || 0,
+        road_distance_text: cacheCheck.road_distance_text || cacheCheck.route.navigationMetadata?.roadDistanceText || "",
+        road_duration_text: cacheCheck.road_duration_text || cacheCheck.route.navigationMetadata?.roadDurationText || "",
+        route_polyline: [],
         navigation_stats: cacheCheck.navigation_stats
       });
     }
@@ -277,6 +377,12 @@ export const processCompletePipelineWithVideoCached = async (req, res) => {
         message: "Failed to generate frames"
       });
     }
+
+    // ✅ Extract road distance from generate step
+    const roadDistanceM = generateResp.data.road_distance_m || 0;
+    const roadDistanceText = generateResp.data.road_distance_text || "";
+    const roadDurationText = generateResp.data.road_duration_text || "";
+    const routePolyline = generateResp.data.route_polyline || [];
 
     // ✅ STEP 3: Process complete pipeline (smooth + regenerate + interpolate)
     const pyResp = await axios.post(`${PYTHON_SERVICE}/process_complete_pipeline`, {
@@ -312,7 +418,7 @@ export const processCompletePipelineWithVideoCached = async (req, res) => {
     const alertCount = framesWithAlerts.filter(f => f.alert).length;
     const landmarkCount = framesWithAlerts.filter(f => f.alertType === 'landmark').length;
 
-    // ✅ STEP 5: Save route to MongoDB
+    // ✅ STEP 5: Save route to MongoDB (including road distance)
     const newRoute = new Route({
       userId,
       start,
@@ -330,7 +436,9 @@ export const processCompletePipelineWithVideoCached = async (req, res) => {
         totalLandmarks: landmarkCount,
         alertedFrames: alertCount,
         routeDuration: 0,
-        routeDistance: 0
+        routeDistance: roadDistanceM,
+        roadDistanceText,
+        roadDurationText,
       },
       alertsEnabled: enable_alerts,
       processedAt: new Date()
@@ -367,7 +475,6 @@ export const processCompletePipelineWithVideoCached = async (req, res) => {
         });
 
         if (videoResp.data.success) {
-          // ✅ Update route with video info
           await Route.findByIdAndUpdate(
             savedRoute._id,
             { 
@@ -409,6 +516,11 @@ export const processCompletePipelineWithVideoCached = async (req, res) => {
       cached: false,
       statistics: pyResp.data.statistics,
       video_info: videoResult,
+      // ✅ Always include road distance
+      road_distance_m: roadDistanceM,
+      road_distance_text: roadDistanceText,
+      road_duration_text: roadDurationText,
+      route_polyline: routePolyline,
       navigation_stats: {
         total_turns: generateResp.data.navigation_stats?.total_turns || 0,
         total_alerts: alertCount,
@@ -777,6 +889,12 @@ export const processCompletePipeline = async (req, res) => {
     const alertCount = frames.filter(f => f.alert).length;
     const landmarkCount = frames.filter(f => f.alertType === 'landmark').length;
 
+    // ✅ Extract road distance
+    const roadDistanceM = pyResp.data.road_distance_m || 0;
+    const roadDistanceText = pyResp.data.road_distance_text || "";
+    const roadDurationText = pyResp.data.road_duration_text || "";
+    const routePolyline = pyResp.data.route_polyline || [];
+
     const newRoute = new Route({
       userId,
       start,
@@ -792,7 +910,9 @@ export const processCompletePipeline = async (req, res) => {
         totalLandmarks: landmarkCount,
         alertedFrames: alertCount,
         routeDuration: 0,
-        routeDistance: 0
+        routeDistance: roadDistanceM,
+        roadDistanceText,
+        roadDurationText,
       },
       alertsEnabled: enable_alerts,
       processedAt: new Date()
@@ -805,6 +925,11 @@ export const processCompletePipeline = async (req, res) => {
       route: savedRoute,
       pipeline_success: true,
       statistics: pyResp.data.statistics,
+      // ✅ Include road distance
+      road_distance_m: roadDistanceM,
+      road_distance_text: roadDistanceText,
+      road_duration_text: roadDurationText,
+      route_polyline: routePolyline,
       navigation_stats: {
         total_turns: pyResp.data.navigation_stats?.total_turns || 0,
         total_alerts: alertCount,
@@ -1047,8 +1172,15 @@ export const processCompletePipelineWithVideo = async (req, res) => {
     const alertCount = frames.filter(f => f.alert).length;
     const landmarkCount = frames.filter(f => f.alertType === 'landmark').length;
     
+    // ✅ Extract road distance
+    const roadDistanceM = pyResp.data.road_distance_m || 0;
+    const roadDistanceText = pyResp.data.road_distance_text || "";
+    const roadDurationText = pyResp.data.road_duration_text || "";
+    const routePolyline = pyResp.data.route_polyline || [];
+
     console.log(`📊 Received ${voHeadings.length} VO headings from pipeline`);
     console.log(`🔔 Received ${alertCount} alerts (${landmarkCount} landmarks)`);
+    console.log(`🛣️ Road distance: ${roadDistanceText}`);
 
     const newRoute = new Route({
       userId,
@@ -1066,7 +1198,9 @@ export const processCompletePipelineWithVideo = async (req, res) => {
         totalLandmarks: landmarkCount,
         alertedFrames: alertCount,
         routeDuration: 0,
-        routeDistance: 0
+        routeDistance: roadDistanceM,
+        roadDistanceText,
+        roadDurationText,
       },
       alertsEnabled: enable_alerts,
       processedAt: new Date()
@@ -1145,6 +1279,11 @@ export const processCompletePipelineWithVideo = async (req, res) => {
       pipeline_success: true,
       statistics: pyResp.data.statistics,
       video_info: videoResult,
+      // ✅ Include road distance
+      road_distance_m: roadDistanceM,
+      road_distance_text: roadDistanceText,
+      road_duration_text: roadDurationText,
+      route_polyline: routePolyline,
       navigation_stats: {
         total_turns: pyResp.data.navigation_stats?.total_turns || 0,
         total_alerts: alertCount,
